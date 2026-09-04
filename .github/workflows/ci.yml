@@ -20,9 +20,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Pinned toolchain: the one this package was validated against, so CI is
+      # reproducible (a newer stable was introducing fresh clippy lints that
+      # hadn't been run through the docs/examples yet). Bump deliberately.
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: 1.93.1
           components: rustfmt, clippy
 
       - name: Install flatc (FlatBuffers compiler)
@@ -53,6 +57,8 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.1
 
       - name: Install flatc (FlatBuffers compiler)
         run: |
