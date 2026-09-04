@@ -1,5 +1,7 @@
 # MooRacer
 
+![MooRacer](images/mooracer-banner.png)
+
 An in-memory, network-accessible document data engine in **pure Rust**. No disk,
 no persistence, no durable state — think "Redis, but a document store and
 entirely in RAM." It provides the full query surface of
