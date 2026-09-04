@@ -29,12 +29,8 @@ jobs:
           toolchain: 1.93.1
           components: rustfmt, clippy
 
-      - name: Install flatc (FlatBuffers compiler)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y flatbuffers-compiler
-          flatc --version
-
+      # No system `flatc` needed: the wire crate's FlatBuffers types are
+      # vendored (wire/src/generated.rs), so Rust builds are self-contained.
       - uses: Swatinem/rust-cache@v2
 
       - name: Format check
@@ -60,11 +56,7 @@ jobs:
         with:
           toolchain: 1.93.1
 
-      - name: Install flatc (FlatBuffers compiler)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y flatbuffers-compiler
-
+      # Wire types are vendored, so the devserver build needs no system flatc.
       - uses: Swatinem/rust-cache@v2
 
       - uses: actions/setup-python@v5

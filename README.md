@@ -92,10 +92,12 @@ cargo build --release  # optimized (LTO)
 cargo test             # full suite (all crates; Rust only — see Python below)
 ```
 
-> **Prerequisite:** the `wire` crate runs `flatc` (the FlatBuffers compiler) in
-> its `build.rs`. `flatc` must be on `PATH` (or set `FLATC=/path/to/flatc`);
-> this host has `/usr/bin/flatc`. Do **not** edit the generated code — edit
-> `schema/mooracer.fbs` and rebuild.
+> **Generated code is vendored.** The FlatBuffers types for the Rust `wire`
+> crate are checked in at `wire/src/generated.rs` (and the Python client's
+> `wire/` package), so the workspace builds **without** needing a system
+> `flatc`. `flatc` is only required when you *edit* `schema/mooracer.fbs` and
+> want to regenerate (`flatc --rust -o wire/src schema/mooracer.fbs`), or
+> regenerate the Python package. Do **not** hand-edit the generated files.
 
 ## Quick start (Rust client)
 

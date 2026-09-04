@@ -573,8 +573,10 @@ on the grouped result.
 ### FlatBuffers wire schema (v1) — decisions (contract)
 
 Defined in `schema/mooracer.fbs`, code-generated into the `wire` crate
-(`mooracer-wire`) by `flatc --rust` in `wire/build.rs`; server and client share
-that one generated module. `file_identifier "MOOR"`, `root_type Request`,
+(`mooracer-wire`) by `flatc --rust`; the generated types are **vendored** at
+`wire/src/generated.rs` (reproducible builds, no system `flatc` at build time),
+and server and client share that one generated module. `file_identifier
+"MOOR"`, `root_type Request`,
 envelope version `1` (the `version` field on both `Request` and `Response`,
 for future-proofing).
 
