@@ -1,0 +1,12 @@
+[package]
+name = "mooracer-server"
+description = "MooRacer TCP server: length-prefixed FlatBuffers frames, thread-pooled request loop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+mooracer-wire = { workspace = true }
+mooracer-engine = { workspace = true }
+flatbuffers = { workspace = true }

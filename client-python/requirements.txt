@@ -1,0 +1,4 @@
+# Python client runtime dependency.
+# The generated mooracer/wire/ package is checked in (flatc --python);
+# regenerate with: flatc --python -o mooracer/ ../schema/mooracer.fbs
+flatbuffers>=23.5.26

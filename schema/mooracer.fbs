@@ -1,0 +1,255 @@
+// MooRacer wire protocol schema (wire format v1).
+//
+// One .fbs for the whole request/response envelope: a Value tree (mirroring
+// the engine's `Value` enum), a command union of typed request payloads, a
+// response union of typed result payloads, and a Status enum of typed error
+// codes. Frames on the wire are length-prefixed flatbuffers carrying a
+// Request (client -> server) or a Response (server -> client) root.
+//
+// Codegen: `flatc --rust schema/mooracer.fbs` (run by wire/build.rs into
+// OUT_DIR; see AGENTS.md for flatc usage).
+namespace mooracer.wire;
+
+file_identifier "MOOR";
+
+// ---------------------------------------------------------------------------
+// Value tree (mirrors mooracer-engine `Value`)
+// ---------------------------------------------------------------------------
+
+enum ValueKind : ubyte {
+  Null,
+  Bool,
+  I64,
+  F64,
+  Str,
+  Array,
+  Object,
+}
+
+table Value {
+  // Discriminant; only the field matching `kind` is meaningful.
+  kind: ValueKind;
+  b: bool;          // Bool
+  i: long;          // I64
+  f: double;        // F64
+  s: string;        // Str
+  arr: [Value];     // Array: elements, in order
+  keys: [string];   // Object: keys, in stored (insertion) order
+  vals: [Value];    // Object: values, parallel to `keys`
+}
+
+// ---------------------------------------------------------------------------
+// Aggregation
+// ---------------------------------------------------------------------------
+
+enum AggFn : ubyte {
+  Count,
+  Sum,
+  Mean,
+  Min,
+  Max,
+  Collect,
+  First,
+  Last,
+}
+
+// ---------------------------------------------------------------------------
+// Commands (request union payloads)
+// ---------------------------------------------------------------------------
+
+// insert (one doc) or insert_many (several), in order.
+table InsertCmd { docs: [Value]; }
+
+// find / find_one with the filter -> sort -> skip -> limit pipeline.
+table FindCmd {
+  filter: Value;          // {} = all documents
+  sort_field: string;     // absent = unsorted (storage/index order)
+  sort_desc: bool;        // with sort_field
+  skip: ulong;
+  limit: ulong;           // 0 = no limit (Mongo cursor convention)
+  one: bool;              // true = find_one (server stops after 1 match)
+}
+
+table CountCmd { filter: Value; }
+
+table ExistsCmd { filter: Value; }
+
+// update_one / update_many. `update` is the Mongo operator object:
+// {"$set": {...}, "$inc": {...}, "$unset": {...}} (encoded as a Value).
+table UpdateCmd {
+  filter: Value;
+  update: Value;
+  many: bool;             // false = update_one (errors NoMatch on zero matches)
+}
+
+// replace_one (preserves `_id`).
+table ReplaceCmd {
+  filter: Value;
+  new_doc: Value;
+}
+
+// delete_one / delete_many. delete_one: `count` in the response is 0 or 1.
+table DeleteCmd {
+  filter: Value;
+  many: bool;
+}
+
+// Brute-force cosine vector search (requires a vector index on `field`).
+table VectorSearchCmd {
+  field: string;
+  query: [float];
+  limit: ulong;           // 0 = no limit
+}
+
+// BM25 text search (requires a text index on `field`).
+table TextSearchCmd {
+  field: string;
+  query: string;
+  limit: ulong;           // 0 = no limit
+}
+
+// RRF hybrid search (requires BOTH a text index and a vector index).
+table HybridSearchCmd {
+  text_field: string;
+  vec_field: string;
+  query_text: string;
+  query_vec: [float];
+  limit: ulong;           // 0 = no limit
+}
+
+// Aggregation: filter -> (query sort/skip/limit) -> group -> (group
+// sort/limit) -> agg. Query-level fields are absent/0 when unused.
+table GroupCmd {
+  filter: Value;
+  sort_field: string;     // query-level (pre-group) sort; absent = none
+  sort_desc: bool;
+  skip: ulong;
+  limit: ulong;           // query-level; 0 = no limit
+  group_field: string;
+  agg_fn: AggFn;
+  agg_field: string;      // ignored by Count
+  group_sort_field: string;  // post-group sort; absent = group-key order
+  group_sort_desc: bool;
+  group_limit: ulong;           // post-group; 0 = no limit
+}
+
+// Collection statistics (docs, per-index memory estimates, counts).
+table StatsCmd {}
+
+union Command {
+  InsertCmd,
+  FindCmd,
+  CountCmd,
+  ExistsCmd,
+  UpdateCmd,
+  ReplaceCmd,
+  DeleteCmd,
+  VectorSearchCmd,
+  TextSearchCmd,
+  HybridSearchCmd,
+  GroupCmd,
+  StatsCmd,
+}
+
+// ---------------------------------------------------------------------------
+// Request envelope
+// ---------------------------------------------------------------------------
+
+table Request {
+  version: ulong = 1;     // wire schema version (envelope for future-proofing)
+  req_id: ulong;          // client-chosen correlation id; echoed in Response
+  collection: string;     // target collection name
+  command: Command;       // what to do
+}
+
+// ---------------------------------------------------------------------------
+// Results (response union payloads)
+// ---------------------------------------------------------------------------
+
+table InsertRes { ids: [string]; }  // one per inserted doc, in request order
+
+table FindRes { docs: [Value]; }    // pipeline order (sort/skip/limit applied)
+
+table CountRes { count: ulong; }
+
+table ExistsRes { exists: bool; }
+
+table UpdateRes { count: ulong; }   // update_one: 1 on success (else NoMatch)
+
+table ReplaceRes { count: ulong; }
+
+table DeleteRes { count: ulong; }   // delete_one: 0 or 1
+
+table SearchHit { doc: Value; score: double; }
+
+// vector_search / text_search / hybrid_search results, best-first, post-limit.
+table SearchRes { hits: [SearchHit]; }
+
+// Grouped result docs: { "_id": <group key>, "<fn-name>": <value> }.
+table GroupRes { groups: [Value]; }
+
+table IndexStat {
+  field: string;
+  entries: ulong;
+  distinct: ulong;
+  memory: ulong;          // bytes (estimate)
+}
+
+table StatsRes {
+  docs: ulong;
+  docs_memory: ulong;     // bytes (estimate)
+  indexes: ulong;
+  total_memory: ulong;    // docs_memory + sum(per_index.memory)
+  per_index: [IndexStat]; // sorted by field name; always includes `_id`
+}
+
+union ResponseBody {
+  InsertRes,
+  FindRes,
+  CountRes,
+  ExistsRes,
+  UpdateRes,
+  ReplaceRes,
+  DeleteRes,
+  SearchRes,
+  GroupRes,
+  StatsRes,
+}
+
+// ---------------------------------------------------------------------------
+// Status / typed error codes
+// ---------------------------------------------------------------------------
+
+enum Status : byte {
+  OK,                   // 0: success; `body` carries the typed result
+  // Store errors (mirror mooracer-engine `StoreError`; detail in `message`)
+  NotAnObject,
+  IdMustBeString,
+  DuplicateId,
+  IdMismatch,
+  NoIndex,
+  PrimaryIndex,
+  NoMatch,
+  InvalidUpdate,
+  VectorDimMismatch,
+  // Transport / protocol errors (raised by the server itself)
+  MalformedRequest,     // bad frame, invalid FlatBuffer, or bad file identifier
+  UnknownCommand,       // union variant this server build does not implement
+  UnsupportedVersion,   // Request.version not supported by this server
+  InternalError,        // anything else unexpected
+}
+
+// ---------------------------------------------------------------------------
+// Response envelope
+// ---------------------------------------------------------------------------
+
+table Response {
+  version: ulong = 1;
+  req_id: ulong;        // echoes Request.req_id
+  status: Status = OK;
+  message: string;      // human-readable detail ("" on OK)
+  body: ResponseBody;   // typed result payload (variant matches the command)
+}
+
+// Declared last: flatc resolves root_type at parse time, after the tables.
+root_type Request;

@@ -1,0 +1,25 @@
+[workspace]
+resolver = "3"
+members = ["engine", "wire", "server", "client-rust", "bench"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+authors = ["Pat Wendorf"]
+
+[workspace.dependencies]
+mooracer-engine = { path = "engine" }
+mooracer-wire = { path = "wire" }
+mooracer-client = { path = "client-rust" }
+flatbuffers = "25"
+rayon = "1.11"
+smallvec = "1.15"
+
+# Maxed-out release profile for the perf-focused build: whole-program LTO and a
+# single codegen unit. Debug (`cargo test`) stays fast; release builds are the
+# ones the bench harness and server ship with.
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1

@@ -1,0 +1,15 @@
+[package]
+name = "mooracer-bench"
+description = "MooRacer benchmark harness: ops/s + p50/p99 per workload, --release"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "bench"
+path = "src/main.rs"
+
+[dependencies]
+mooracer-engine = { workspace = true }
+rayon = { workspace = true }

@@ -1,0 +1,5 @@
+# CPU-native codegen for the whole workspace (spec: "CPU-native where
+# reasonable"). This build target is the local box where the server and bench
+# binary run; do not ship these artifacts to other architectures.
+[build]
+rustflags = ["-C", "target-cpu=native"]

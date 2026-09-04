@@ -1,0 +1,19 @@
+[package]
+name = "mooracer-client"
+description = "MooRacer Rust client: Mongo-style chain API over the FlatBuffers TCP wire"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+mooracer-engine = { workspace = true }
+mooracer-wire = { workspace = true }
+flatbuffers = { workspace = true }
+
+[dev-dependencies]
+mooracer-server = { path = "../server" }
+
+[lib]
+name = "mooracer_client"
+path = "src/lib.rs"

@@ -1,0 +1,10 @@
+[package]
+name = "mooracer-wire"
+description = "MooRacer wire protocol: FlatBuffers schema codegen (flatc) + generated request/response types"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+flatbuffers = { workspace = true }
