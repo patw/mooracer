@@ -234,6 +234,37 @@ def test_hybrid_search_rrf(server):
     assert ei.value.status == 5
 
 
+def test_index_management_over_wire(server):
+    """Indexes are created/dropped over the wire (no server-side seeding)."""
+    # A fresh, empty collection with no pre-created indexes.
+    c, herd = connect(server, docs=None)
+    with pytest.raises(ServerError) as ei:
+        herd.vector_search("emb", [1.0, 0.0], 5)
+    assert ei.value.status == 5  # NoIndex before any index exists
+
+    herd.insert_many(COWS)
+
+    # Create value / vector / text indexes over the wire.
+    herd.create_index("region")
+    herd.create_vector_index("emb", 2)
+    herd.create_text_index("text")
+
+    assert herd.vector_search("emb", [1.0, 0.0], 0)[0][0]["_id"] == "bess"
+    assert len(herd.text_search("text", "brown", 0)) == 2
+    assert herd.count({"region": "north"}) == 2
+
+    # Dropping the primary `_id` index is an error.
+    with pytest.raises(ServerError) as ei:
+        herd.drop_index("_id")
+    assert ei.value.status == 6  # PrimaryIndex
+
+    # Dropping the vector index makes search return NoIndex again.
+    herd.drop_vector_index("emb")
+    with pytest.raises(ServerError) as ei:
+        herd.vector_search("emb", [1.0, 0.0], 5)
+    assert ei.value.status == 5
+
+
 # ---------------------------------------------------------------------------
 # Aggregation
 # ---------------------------------------------------------------------------

@@ -589,14 +589,19 @@ for future-proofing).
   new_doc }`, `DeleteCmd { filter, many }`, `VectorSearchCmd`, `TextSearchCmd`,
   `HybridSearchCmd`, `GroupCmd` (full two-stage pipeline: query-level
   sort/skip/limit, then group, then group-level sort/limit, then the
-  `AggFn`/`agg_field`), `StatsCmd`. Conventions inherited from the engine:
+  `AggFn`/`agg_field`), `StatsCmd`, `IndexCmd { kind, field, dim }` where
+  `kind` is an `IndexKind` (`CreateValue`/`DropValue`/`CreateVector`/
+  `DropVector`/`CreateText`/`DropText`). Index management is a write-path
+  command (takes the exclusive lock) and is what enables search/value indexes
+  at runtime from a client. Conventions inherited from the engine:
   `limit == 0` = no limit; `filter {}` = all; `one`/`many` flags collapse
   `find/find_one` and the `*_one`/`*_many` pairs onto one payload each.
 - **Response union**: `InsertRes { ids }`, `FindRes { docs }`, `CountRes`,
   `ExistsRes`, `UpdateRes`, `ReplaceRes`, `DeleteRes { count }` (`delete_one`
   surfaces as `count ∈ {0,1}`), `SearchRes { hits: [SearchHit{doc, score}] }`
   (shared by all three search kinds), `GroupRes { groups }`, `StatsRes
-  { docs, docs_memory, indexes, total_memory, per_index: [IndexStat] }`.
+  { docs, docs_memory, indexes, total_memory, per_index: [IndexStat] }`,
+  `IndexRes` (success marker for `IndexCmd`).
 - **Status codes** (`enum Status : byte`): `OK` plus the nine engine
   `StoreError` variants verbatim (`NotAnObject`, `IdMustBeString`,
   `DuplicateId`, `IdMismatch`, `NoIndex`, `PrimaryIndex`, `NoMatch`,
@@ -686,12 +691,13 @@ and runs the full FlatBuffers verifier over a request buffer.
     verifies it); `limit 0` = no limit; framing = 4-byte little-endian `u32`
     length prefix (same 256 MiB cap as the server); one reused receive
     buffer per connection.
-  - **Wire v1 has no index-management command**: indexes are server-side
-    only. The pytest suite therefore drives a dev server
-    (`server/src/bin/mooracer-devserver.rs`) that pre-creates vector/text
-    indexes from env vars (`MOORACER_VECTOR_INDEX=coll:field:dim;…`,
-    `MOORACER_TEXT_INDEX=coll:field;…`) before serving; tests insert their
-    docs over the wire and the engine maintains the indexes on insert.
+  - **Indexes are managed over the wire** via `IndexCmd` (create/drop value,
+    vector, and text indexes). The pytest suite can additionally drive a dev
+    server (`server/src/bin/mooracer-devserver.rs`) that pre-creates
+    vector/text indexes from env vars (`MOORACER_VECTOR_INDEX=coll:field:dim;…`,
+    `MOORACER_TEXT_INDEX=coll:field;…`) before serving; the wire-level index
+    commands are also covered directly. Tests insert docs over the wire and the
+    engine maintains the indexes on insert.
     Unsorted finds return storage (hash-table) order — tests must compare
     sets unless a sort is applied.
   - Tests: `client-python/tests/` (pytest) — pure-protocol tests (value

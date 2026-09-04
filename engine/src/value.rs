@@ -171,7 +171,10 @@ impl Value {
     }
     /// True for `Null | Bool | I64 | F64 | Str`.
     pub const fn is_scalar(&self) -> bool {
-        matches!(self, Value::Null | Value::Bool(_) | Value::I64(_) | Value::F64(_) | Value::Str(_))
+        matches!(
+            self,
+            Value::Null | Value::Bool(_) | Value::I64(_) | Value::F64(_) | Value::Str(_)
+        )
     }
     /// `true` for `Array` and `Object`.
     pub const fn is_container(&self) -> bool {
@@ -451,7 +454,9 @@ fn ensure_container(node: &mut Value, rest: &[&str]) -> Result<(), PathError> {
             Ok(())
         }
         Value::Array(_) | Value::Object(_) => Ok(()),
-        other => Err(PathError::CannotDescend { found: other.type_name() }),
+        other => Err(PathError::CannotDescend {
+            found: other.type_name(),
+        }),
     }
 }
 
@@ -540,7 +545,9 @@ fn remove_path_inner(node: &mut Value, toks: &[&str]) -> Result<bool, PathError>
                 remove_path_inner(&mut items[idx], rest)
             }
         }
-        _ => Err(PathError::CannotDescend { found: node.type_name() }),
+        _ => Err(PathError::CannotDescend {
+            found: node.type_name(),
+        }),
     }
 }
 
@@ -604,7 +611,9 @@ fn set_path_inner(node: &mut Value, toks: &[&str], value: Value) -> Result<(), P
                 set_path_inner(slot, rest, value)
             }
         }
-        _ => Err(PathError::CannotDescend { found: node.type_name() }),
+        _ => Err(PathError::CannotDescend {
+            found: node.type_name(),
+        }),
     }
 }
 
@@ -652,11 +661,7 @@ fn cmp_i64_f64(i: i64, f: f64) -> Ordering {
     let bits = f.to_bits();
     if bits & 0x7FFF_FFFF_FFFF_FFFF == 0 {
         // ±0.0: the "implicit bit" does not apply to zero.
-        return if i == 0 {
-            Ordering::Equal
-        } else {
-            i.cmp(&0)
-        };
+        return if i == 0 { Ordering::Equal } else { i.cmp(&0) };
     }
     let exp = ((bits >> 52) & 0x7FF) as i32 - 1075; // 1023 bias + 52 implicit bits
     // NOTE: the mantissa mask is 52 bits (0x000F_FFFF_FFFF_FFFF) and the
@@ -701,13 +706,14 @@ fn cmp_i64_f64(i: i64, f: f64) -> Ordering {
 
 /// Total order on f64 for index/sort use: NaN == NaN, NaN > +inf.
 fn cmp_f64(a: f64, b: f64) -> Ordering {
-    a.partial_cmp(&b).unwrap_or_else(|| match (a.is_nan(), b.is_nan()) {
-        (true, true) => Ordering::Equal,
-        (true, false) => Ordering::Greater,
-        (false, true) => Ordering::Less,
-        // unreachable: partial_cmp only diverges on NaN; keep the total order
-        (false, false) => Ordering::Equal,
-    })
+    a.partial_cmp(&b)
+        .unwrap_or_else(|| match (a.is_nan(), b.is_nan()) {
+            (true, true) => Ordering::Equal,
+            (true, false) => Ordering::Greater,
+            (false, true) => Ordering::Less,
+            // unreachable: partial_cmp only diverges on NaN; keep the total order
+            (false, false) => Ordering::Equal,
+        })
 }
 
 impl Eq for Value {}
@@ -949,7 +955,12 @@ mod tests {
     use std::f64;
 
     fn obj(pairs: &[(&str, Value)]) -> Value {
-        Value::Object(pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect())
+        Value::Object(
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.clone()))
+                .collect(),
+        )
     }
     fn arr(items: &[Value]) -> Value {
         Value::Array(items.to_vec())
@@ -980,7 +991,7 @@ mod tests {
         assert_eq!(s.type_name(), "str");
 
         let a = Value::array();
-        assert!(a.is_array() && a.is_container() && a.is_empty() && a.len() == 0);
+        assert!(a.is_array() && a.is_container() && a.is_empty() && a.is_empty());
         assert_eq!(a.type_name(), "array");
 
         let o = Value::object();
@@ -999,7 +1010,10 @@ mod tests {
 
         assert_eq!(Value::from_u64(1u64), Value::i64(1));
         assert_eq!(Value::from_u64(i64::MAX as u64), Value::i64(i64::MAX));
-        assert_eq!(Value::from_u64(i64::MAX as u64 + 1), Value::f64((i64::MAX as u64 + 1) as f64));
+        assert_eq!(
+            Value::from_u64(i64::MAX as u64 + 1),
+            Value::f64((i64::MAX as u64 + 1) as f64)
+        );
         assert_eq!(Value::default(), Value::Null);
     }
 
@@ -1072,8 +1086,13 @@ mod tests {
         // insertion order preserved
         assert_eq!(o.keys().collect::<Vec<_>>(), vec!["a", "b"]);
         assert_eq!(
-            o.iter().map(|(k, v)| (k.to_string(), v.clone())).collect::<Vec<_>>(),
-            vec![("a".to_string(), Value::i64(2)), ("b".to_string(), Value::str("x"))]
+            o.iter()
+                .map(|(k, v)| (k.to_string(), v.clone()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("a".to_string(), Value::i64(2)),
+                ("b".to_string(), Value::str("x"))
+            ]
         );
 
         assert_eq!(o.remove("b"), Some(Value::str("x")));
@@ -1095,7 +1114,10 @@ mod tests {
     fn get_path_nested() {
         let doc = obj(&[
             ("a", obj(&[("b", obj(&[("c", Value::i64(7))]))])),
-            ("arr", arr(&[obj(&[("x", Value::i64(1))]), obj(&[("x", Value::i64(2))])])),
+            (
+                "arr",
+                arr(&[obj(&[("x", Value::i64(1))]), obj(&[("x", Value::i64(2))])]),
+            ),
         ]);
         assert_eq!(doc.get_path("a.b.c"), Some(&Value::i64(7)));
         assert_eq!(doc.get_path("a.b"), Some(&obj(&[("c", Value::i64(7))])));
@@ -1169,7 +1191,10 @@ mod tests {
         // creates missing intermediates
         let mut empty = Value::object();
         empty.set_path("x.y.z", Value::i64(1)).unwrap();
-        assert_eq!(empty, obj(&[("x", obj(&[("y", obj(&[("z", Value::i64(1))]))]))]));
+        assert_eq!(
+            empty,
+            obj(&[("x", obj(&[("y", obj(&[("z", Value::i64(1))]))]))])
+        );
     }
 
     #[test]
@@ -1185,7 +1210,10 @@ mod tests {
             a.set_path("9", Value::i64(3)),
             Err(PathError::IndexOutOfRange { index: 9, len: 3 })
         );
-        assert_eq!(a.set_path("x", Value::i64(3)), Err(PathError::NotAnIndex("x".into())));
+        assert_eq!(
+            a.set_path("x", Value::i64(3)),
+            Err(PathError::NotAnIndex("x".into()))
+        );
     }
 
     #[test]
@@ -1202,7 +1230,10 @@ mod tests {
         o2.set_path("missing.1.nested", Value::i64(7)).unwrap();
         assert_eq!(
             o2,
-            obj(&[("missing", arr(&[Value::Null, obj(&[("nested", Value::i64(7))])]))])
+            obj(&[(
+                "missing",
+                arr(&[Value::Null, obj(&[("nested", Value::i64(7))])])
+            )])
         );
     }
 
@@ -1213,7 +1244,10 @@ mod tests {
         o.set_path("a.2.x", Value::i64(1)).unwrap();
         assert_eq!(
             o,
-            obj(&[("a", arr(&[Value::Null, Value::Null, obj(&[("x", Value::i64(1))])]))])
+            obj(&[(
+                "a",
+                arr(&[Value::Null, Value::Null, obj(&[("x", Value::i64(1))])])
+            )])
         );
         // index > len on an existing array is an error (no sparse extend)
         assert_eq!(
@@ -1224,10 +1258,16 @@ mod tests {
 
     #[test]
     fn remove_path_object_and_nested() {
-        let mut o = obj(&[("a", obj(&[("b", Value::i64(1)), ("c", Value::i64(2))])), ("x", Value::i64(9))]);
+        let mut o = obj(&[
+            ("a", obj(&[("b", Value::i64(1)), ("c", Value::i64(2))])),
+            ("x", Value::i64(9)),
+        ]);
         // top-level leaf
         assert_eq!(o.remove_path("x"), Ok(true));
-        assert_eq!(o, obj(&[("a", obj(&[("b", Value::i64(1)), ("c", Value::i64(2))]))]));
+        assert_eq!(
+            o,
+            obj(&[("a", obj(&[("b", Value::i64(1)), ("c", Value::i64(2))]))])
+        );
         // nested leaf
         assert_eq!(o.remove_path("a.b"), Ok(true));
         assert_eq!(o, obj(&[("a", obj(&[("c", Value::i64(2))]))]));
@@ -1247,18 +1287,30 @@ mod tests {
         // idx == len: nothing to remove (no-op, not an error)
         assert_eq!(a.remove_path("1"), Ok(false));
         // idx > len: out of range error
-        assert_eq!(a.remove_path("5"), Err(PathError::IndexOutOfRange { index: 5, len: 1 }));
+        assert_eq!(
+            a.remove_path("5"),
+            Err(PathError::IndexOutOfRange { index: 5, len: 1 })
+        );
         // non-index token on an array
         assert_eq!(a.remove_path("x"), Err(PathError::NotAnIndex("x".into())));
     }
 
     #[test]
     fn remove_path_nested_array_of_objects() {
-        let mut o = obj(&[("arr", arr(&[obj(&[("x", Value::i64(1))]), obj(&[("x", Value::i64(2))])]))]);
+        let mut o = obj(&[(
+            "arr",
+            arr(&[obj(&[("x", Value::i64(1))]), obj(&[("x", Value::i64(2))])]),
+        )]);
         assert_eq!(o.remove_path("arr.0.x"), Ok(true));
-        assert_eq!(o, obj(&[("arr", arr(&[obj(&[]), obj(&[("x", Value::i64(2))])]))]));
+        assert_eq!(
+            o,
+            obj(&[("arr", arr(&[obj(&[]), obj(&[("x", Value::i64(2))])]))])
+        );
         // idx 5 > len 2 at the leaf: out-of-range error
-        assert_eq!(o.remove_path("arr.5"), Err(PathError::IndexOutOfRange { index: 5, len: 2 }));
+        assert_eq!(
+            o.remove_path("arr.5"),
+            Err(PathError::IndexOutOfRange { index: 5, len: 2 })
+        );
         // missing intermediate object key: no-op
         assert_eq!(o.remove_path("nope.0.x"), Ok(false));
     }
@@ -1266,11 +1318,14 @@ mod tests {
     #[test]
     fn set_path_errors() {
         let mut v = Value::object();
-        assert_eq!(v.set_path("", Value::i64(1)), Err(PathError::InvalidPath(String::new())));
-        assert_eq!(v.set_path("a..b", Value::i64(1)).is_err(), true);
-        assert_eq!(v.set_path("a[0]b", Value::i64(1)).is_err(), true);
-        assert_eq!(v.set_path("a[", Value::i64(1)).is_err(), true);
-        assert_eq!(v.set_path("a[]", Value::i64(1)).is_err(), true);
+        assert_eq!(
+            v.set_path("", Value::i64(1)),
+            Err(PathError::InvalidPath(String::new()))
+        );
+        assert!(v.set_path("a..b", Value::i64(1)).is_err());
+        assert!(v.set_path("a[0]b", Value::i64(1)).is_err());
+        assert!(v.set_path("a[", Value::i64(1)).is_err());
+        assert!(v.set_path("a[]", Value::i64(1)).is_err());
         // a stray `]` (no matching `[`) is just part of the key
         v.set_path("a]", Value::i64(1)).unwrap();
         assert_eq!(v.get_path("a]"), Some(&Value::i64(1)));
@@ -1301,7 +1356,10 @@ mod tests {
         assert_eq!(Value::f64(1.0).to_string(), "1.0");
         assert_eq!(Value::f64(1.5).to_string(), "1.5");
         assert_eq!(Value::f64(-0.5).to_string(), "-0.5");
-        assert_eq!(Value::f64(1e30).to_string(), "1000000000000000000000000000000.0");
+        assert_eq!(
+            Value::f64(1e30).to_string(),
+            "1000000000000000000000000000000.0"
+        );
         assert_eq!(Value::f64(f64::INFINITY).to_string(), "null");
         assert_eq!(Value::f64(f64::NEG_INFINITY).to_string(), "null");
         assert_eq!(Value::f64(f64::NAN).to_string(), "null");
@@ -1310,7 +1368,10 @@ mod tests {
 
     #[test]
     fn display_string_escaping() {
-        assert_eq!(Value::str("he said \"hi\"").to_string(), "\"he said \\\"hi\\\"\"");
+        assert_eq!(
+            Value::str("he said \"hi\"").to_string(),
+            "\"he said \\\"hi\\\"\""
+        );
         assert_eq!(Value::str("a\\b").to_string(), "\"a\\\\b\"");
         assert_eq!(Value::str("a\nb").to_string(), "\"a\\nb\"");
         assert_eq!(Value::str("a\rb").to_string(), "\"a\\rb\"");
@@ -1330,11 +1391,18 @@ mod tests {
             "[1, true, null]"
         );
         assert_eq!(
-            obj(&[("a", Value::i64(1)), ("b", arr(&[Value::bool(true), Value::null()]))]).to_string(),
+            obj(&[
+                ("a", Value::i64(1)),
+                ("b", arr(&[Value::bool(true), Value::null()]))
+            ])
+            .to_string(),
             "{\"a\": 1, \"b\": [true, null]}"
         );
         // insertion order preserved in output
-        assert_eq!(obj(&[("z", Value::i64(1)), ("a", Value::i64(2))]).to_string(), "{\"z\": 1, \"a\": 2}");
+        assert_eq!(
+            obj(&[("z", Value::i64(1)), ("a", Value::i64(2))]).to_string(),
+            "{\"z\": 1, \"a\": 2}"
+        );
         // nested
         assert_eq!(
             obj(&[("a", obj(&[("b", Value::i64(3))]))]).to_string(),
@@ -1361,7 +1429,11 @@ mod tests {
         for i in 0..values.len() {
             for j in 0..values.len() {
                 let c = values[i].cmp(&values[j]);
-                let expect = if i < j { Ordering::Less } else { Ordering::Greater };
+                let expect = if i < j {
+                    Ordering::Less
+                } else {
+                    Ordering::Greater
+                };
                 if i != j {
                     assert_eq!(c, expect, "{} vs {}", values[i], values[j]);
                 } else {
@@ -1377,12 +1449,18 @@ mod tests {
         let two_pow_53 = 1i64 << 53;
         // 2^53 + 1 is not representable in f64: the exact compare must not
         // collapse it to 2^53.
-        assert_eq!(Value::i64(two_pow_53 + 1).cmp(&Value::f64(two_pow_53 as f64)), Ordering::Greater);
+        assert_eq!(
+            Value::i64(two_pow_53 + 1).cmp(&Value::f64(two_pow_53 as f64)),
+            Ordering::Greater
+        );
         assert_eq!(
             Value::i64(two_pow_53 + 1).cmp(&Value::f64((two_pow_53 + 2) as f64)),
             Ordering::Less
         );
-        assert_eq!(Value::i64(two_pow_53).cmp(&Value::f64(two_pow_53 as f64)), Ordering::Equal);
+        assert_eq!(
+            Value::i64(two_pow_53).cmp(&Value::f64(two_pow_53 as f64)),
+            Ordering::Equal
+        );
         // negative side
         assert_eq!(
             Value::i64(-(two_pow_53 + 1)).cmp(&Value::f64(-(two_pow_53 + 2) as f64)),
@@ -1429,16 +1507,31 @@ mod tests {
         assert_eq!(c.cmp(&e), Ordering::Less); // b < c
 
         // arrays are element-wise, not canonical
-        assert_eq!(arr(&[Value::i64(1), Value::i64(2)]).cmp(&arr(&[Value::i64(1), Value::i64(3)])), Ordering::Less);
-        assert_eq!(arr(&[Value::i64(1)]).cmp(&arr(&[Value::i64(1), Value::i64(0)])), Ordering::Less);
+        assert_eq!(
+            arr(&[Value::i64(1), Value::i64(2)]).cmp(&arr(&[Value::i64(1), Value::i64(3)])),
+            Ordering::Less
+        );
+        assert_eq!(
+            arr(&[Value::i64(1)]).cmp(&arr(&[Value::i64(1), Value::i64(0)])),
+            Ordering::Less
+        );
     }
 
     #[test]
     fn nested_equality() {
-        let d1 = obj(&[("a", arr(&[Value::i64(1), Value::f64(2.0)])), ("b", Value::i64(3))]);
-        let d2 = obj(&[("b", Value::i64(3)), ("a", arr(&[Value::f64(1.0), Value::i64(2)]))]);
+        let d1 = obj(&[
+            ("a", arr(&[Value::i64(1), Value::f64(2.0)])),
+            ("b", Value::i64(3)),
+        ]);
+        let d2 = obj(&[
+            ("b", Value::i64(3)),
+            ("a", arr(&[Value::f64(1.0), Value::i64(2)])),
+        ]);
         assert_eq!(d1, d2);
-        let d3 = obj(&[("b", Value::i64(3)), ("a", arr(&[Value::i64(1), Value::i64(3)]))]);
+        let d3 = obj(&[
+            ("b", Value::i64(3)),
+            ("a", arr(&[Value::i64(1), Value::i64(3)])),
+        ]);
         assert_ne!(d1, d3);
     }
 
@@ -1467,7 +1560,7 @@ mod tests {
         let toks = parse_path("a[0][1]").unwrap();
         assert_eq!(toks.as_slice(), ["a", "0", "1"]);
         assert!(parse_path("a[0]x[1]").is_err()); // junk between brackets
-        assert!(parse_path("a.[1]").is_err());    // bracket right after `.`
+        assert!(parse_path("a.[1]").is_err()); // bracket right after `.`
 
         // a stray `]` without `[` stays inside the bare key
         assert_eq!(parse_path("a]b").unwrap().as_slice(), ["a]b"]);

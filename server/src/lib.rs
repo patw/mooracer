@@ -85,25 +85,44 @@ fn value_to_wire<'a>(b: &mut FlatBufferBuilder<'a>, v: &Value) -> WIPOffset<wire
     match v {
         Value::Null => wire::Value::create(
             b,
-            &wire::ValueArgs { kind: wire::ValueKind::Null, ..Default::default() },
+            &wire::ValueArgs {
+                kind: wire::ValueKind::Null,
+                ..Default::default()
+            },
         ),
         Value::Bool(x) => wire::Value::create(
             b,
-            &wire::ValueArgs { kind: wire::ValueKind::Bool, b: *x, ..Default::default() },
+            &wire::ValueArgs {
+                kind: wire::ValueKind::Bool,
+                b: *x,
+                ..Default::default()
+            },
         ),
         Value::I64(x) => wire::Value::create(
             b,
-            &wire::ValueArgs { kind: wire::ValueKind::I64, i: *x, ..Default::default() },
+            &wire::ValueArgs {
+                kind: wire::ValueKind::I64,
+                i: *x,
+                ..Default::default()
+            },
         ),
         Value::F64(x) => wire::Value::create(
             b,
-            &wire::ValueArgs { kind: wire::ValueKind::F64, f: *x, ..Default::default() },
+            &wire::ValueArgs {
+                kind: wire::ValueKind::F64,
+                f: *x,
+                ..Default::default()
+            },
         ),
         Value::Str(s) => {
             let s = b.create_string(s);
             wire::Value::create(
                 b,
-                &wire::ValueArgs { kind: wire::ValueKind::Str, s: Some(s), ..Default::default() },
+                &wire::ValueArgs {
+                    kind: wire::ValueKind::Str,
+                    s: Some(s),
+                    ..Default::default()
+                },
             )
         }
         Value::Array(items) => {
@@ -111,7 +130,11 @@ fn value_to_wire<'a>(b: &mut FlatBufferBuilder<'a>, v: &Value) -> WIPOffset<wire
             let arr = b.create_vector(&offs);
             wire::Value::create(
                 b,
-                &wire::ValueArgs { kind: wire::ValueKind::Array, arr: Some(arr), ..Default::default() },
+                &wire::ValueArgs {
+                    kind: wire::ValueKind::Array,
+                    arr: Some(arr),
+                    ..Default::default()
+                },
             )
         }
         Value::Object(pairs) => {
@@ -283,11 +306,7 @@ fn id_of(doc: &Value) -> Option<String> {
 /// (monotonic) assignment order, so the batch's generated ids line up with the
 /// request positions that lacked an `_id`. `before` MUST be the id-set
 /// captured **before** the insert (the write mutates the store in place).
-fn inserted_ids(
-    collection: &Collection,
-    docs: &[Value],
-    before: &HashSet<String>,
-) -> Vec<String> {
+fn inserted_ids(collection: &Collection, docs: &[Value], before: &HashSet<String>) -> Vec<String> {
     let explicit: Vec<String> = docs.iter().filter_map(id_of).collect();
     let mut generated: Vec<String> = collection
         .iter()
@@ -301,7 +320,11 @@ fn inserted_ids(
     for d in docs {
         match d.get("_id") {
             Some(Value::Str(s)) => out.push(s.clone()),
-            _ => out.push(gen_iter.next().expect("a generated id for every auto-id doc")),
+            _ => out.push(
+                gen_iter
+                    .next()
+                    .expect("a generated id for every auto-id doc"),
+            ),
         }
     }
     out
@@ -322,6 +345,12 @@ fn inserted_ids(
 pub struct Server {
     state: Arc<Store>,
     pool_size: usize,
+}
+
+impl Default for Server {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Server {
@@ -364,7 +393,9 @@ impl Server {
     /// helper; takes the exclusive lock).
     pub fn seed_docs(&self, name: &str, docs: &[Value]) -> Result<usize, StoreError> {
         let mut guard = self.state.write().unwrap();
-        let coll = guard.entry(name.to_string()).or_insert_with(|| Collection::new(name));
+        let coll = guard
+            .entry(name.to_string())
+            .or_insert_with(|| Collection::new(name));
         let mut n = 0;
         for d in docs {
             coll.insert(d.clone())?;
@@ -436,8 +467,9 @@ impl Server {
     pub fn handle_connection(&self, stream: &mut TcpStream) -> io::Result<()> {
         loop {
             match read_frame(stream) {
-                Err(e) if e.kind() == io::ErrorKind::UnexpectedEof
-                    || e.kind() == io::ErrorKind::ConnectionAborted =>
+                Err(e)
+                    if e.kind() == io::ErrorKind::UnexpectedEof
+                        || e.kind() == io::ErrorKind::ConnectionAborted =>
                 {
                     // Client closed the connection: a normal end of session.
                     return Ok(());
@@ -456,11 +488,17 @@ impl Server {
     fn process_request(&self, buf: &[u8]) -> Vec<u8> {
         // Frame sanity: a request buffer must carry the "MOOR" identifier.
         if !flatbuffers::buffer_has_identifier(buf, wire::FILE_IDENTIFIER, false) {
-            return err_response(0, Status::MalformedRequest, "missing/invalid file identifier");
+            return err_response(
+                0,
+                Status::MalformedRequest,
+                "missing/invalid file identifier",
+            );
         }
         let req = match flatbuffers::root::<wire::Request>(buf) {
             Ok(r) => r,
-            Err(_) => return err_response(0, Status::MalformedRequest, "invalid FlatBuffer request"),
+            Err(_) => {
+                return err_response(0, Status::MalformedRequest, "invalid FlatBuffer request");
+            }
         };
         let req_id = req.req_id();
         if req.version() != WIRE_VERSION {
@@ -521,9 +559,15 @@ impl Server {
                 let c = req.command_as_stats_cmd().expect("payload");
                 self.do_stats(req_id, coll, &c)
             }
-            wire::Command::NONE | wire::Command(_) => {
-                err_response(req_id, Status::UnknownCommand, "unknown or unimplemented command")
+            wire::Command::IndexCmd => {
+                let c = req.command_as_index_cmd().expect("payload");
+                self.do_index(req_id, coll, &c)
             }
+            wire::Command::NONE | wire::Command(_) => err_response(
+                req_id,
+                Status::UnknownCommand,
+                "unknown or unimplemented command",
+            ),
         }
     }
 
@@ -563,7 +607,11 @@ impl Server {
                 per_index: Some(per_off),
             },
         );
-        finish_ok(&mut b, req_id, Some((wire::ResponseBody::StatsRes, st.as_union_value())))
+        finish_ok(
+            &mut b,
+            req_id,
+            Some((wire::ResponseBody::StatsRes, st.as_union_value())),
+        )
     }
 
     fn do_count(&self, req_id: u64, coll: String, c: &wire::CountCmd) -> Vec<u8> {
@@ -572,16 +620,27 @@ impl Server {
         let n = guard.get(&coll).map(|col| col.count(filter)).unwrap_or(0);
         let mut b = FlatBufferBuilder::new();
         let r = wire::CountRes::create(&mut b, &wire::CountResArgs { count: n as u64 });
-        finish_ok(&mut b, req_id, Some((wire::ResponseBody::CountRes, r.as_union_value())))
+        finish_ok(
+            &mut b,
+            req_id,
+            Some((wire::ResponseBody::CountRes, r.as_union_value())),
+        )
     }
 
     fn do_exists(&self, req_id: u64, coll: String, c: &wire::ExistsCmd) -> Vec<u8> {
         let filter = c.filter().map(value_from_wire).unwrap_or_default();
         let guard = self.state.read().unwrap();
-        let e = guard.get(&coll).map(|col| col.exists(filter)).unwrap_or(false);
+        let e = guard
+            .get(&coll)
+            .map(|col| col.exists(filter))
+            .unwrap_or(false);
         let mut b = FlatBufferBuilder::new();
         let r = wire::ExistsRes::create(&mut b, &wire::ExistsResArgs { exists: e });
-        finish_ok(&mut b, req_id, Some((wire::ResponseBody::ExistsRes, r.as_union_value())))
+        finish_ok(
+            &mut b,
+            req_id,
+            Some((wire::ResponseBody::ExistsRes, r.as_union_value())),
+        )
     }
 
     fn do_find(&self, req_id: u64, coll: String, c: &wire::FindCmd) -> Vec<u8> {
@@ -610,8 +669,17 @@ impl Server {
         let mut b = FlatBufferBuilder::new();
         let offs: Vec<_> = docs.iter().map(|d| value_to_wire(&mut b, d)).collect();
         let docs_off = b.create_vector(&offs);
-        let r = wire::FindRes::create(&mut b, &wire::FindResArgs { docs: Some(docs_off) });
-        finish_ok(&mut b, req_id, Some((wire::ResponseBody::FindRes, r.as_union_value())))
+        let r = wire::FindRes::create(
+            &mut b,
+            &wire::FindResArgs {
+                docs: Some(docs_off),
+            },
+        );
+        finish_ok(
+            &mut b,
+            req_id,
+            Some((wire::ResponseBody::FindRes, r.as_union_value())),
+        )
     }
 
     // -- write commands (exclusive lock) ----------------------------------
@@ -632,8 +700,13 @@ impl Server {
                 let mut b = FlatBufferBuilder::new();
                 let id_strs: Vec<_> = ids.iter().map(|s| b.create_string(s)).collect();
                 let ids_off = b.create_vector(&id_strs);
-                let r = wire::InsertRes::create(&mut b, &wire::InsertResArgs { ids: Some(ids_off) });
-                finish_ok(&mut b, req_id, Some((wire::ResponseBody::InsertRes, r.as_union_value())))
+                let r =
+                    wire::InsertRes::create(&mut b, &wire::InsertResArgs { ids: Some(ids_off) });
+                finish_ok(
+                    &mut b,
+                    req_id,
+                    Some((wire::ResponseBody::InsertRes, r.as_union_value())),
+                )
             }
             Err(e) => err_response(req_id, status_for_error(&e), &e.to_string()),
         }
@@ -651,16 +724,16 @@ impl Server {
             Ok(n) if !many && n == 0 => {
                 // update_one with no match is an error (NoMatch), per the
                 // engine's write-API convention.
-                err_response(
-                    req_id,
-                    Status::NoMatch,
-                    "update matched no document",
-                )
+                err_response(req_id, Status::NoMatch, "update matched no document")
             }
             Ok(n) => {
                 let mut b = FlatBufferBuilder::new();
                 let r = wire::UpdateRes::create(&mut b, &wire::UpdateResArgs { count: n as u64 });
-                finish_ok(&mut b, req_id, Some((wire::ResponseBody::UpdateRes, r.as_union_value())))
+                finish_ok(
+                    &mut b,
+                    req_id,
+                    Some((wire::ResponseBody::UpdateRes, r.as_union_value())),
+                )
             }
             Err(e) => err_response(req_id, status_for_error(&e), &e.to_string()),
         }
@@ -676,9 +749,12 @@ impl Server {
         match collection.replace_one(filter, new_doc) {
             Ok(n) => {
                 let mut b = FlatBufferBuilder::new();
-                let r =
-                    wire::ReplaceRes::create(&mut b, &wire::ReplaceResArgs { count: n as u64 });
-                finish_ok(&mut b, req_id, Some((wire::ResponseBody::ReplaceRes, r.as_union_value())))
+                let r = wire::ReplaceRes::create(&mut b, &wire::ReplaceResArgs { count: n as u64 });
+                finish_ok(
+                    &mut b,
+                    req_id,
+                    Some((wire::ResponseBody::ReplaceRes, r.as_union_value())),
+                )
             }
             Err(e) => err_response(req_id, status_for_error(&e), &e.to_string()),
         }
@@ -698,7 +774,61 @@ impl Server {
         };
         let mut b = FlatBufferBuilder::new();
         let r = wire::DeleteRes::create(&mut b, &wire::DeleteResArgs { count: n as u64 });
-        finish_ok(&mut b, req_id, Some((wire::ResponseBody::DeleteRes, r.as_union_value())))
+        finish_ok(
+            &mut b,
+            req_id,
+            Some((wire::ResponseBody::DeleteRes, r.as_union_value())),
+        )
+    }
+
+    // -- index management (exclusive lock: mutates indexes) ----------------
+
+    fn do_index(&self, req_id: u64, coll: String, c: &wire::IndexCmd) -> Vec<u8> {
+        use wire::IndexKind;
+        let field = c.field().unwrap_or_default().to_string();
+        let mut guard = self.state.write().unwrap();
+        let collection = guard
+            .entry(coll.clone())
+            .or_insert_with(|| Collection::new(&coll));
+        let result: Result<(), StoreError> = match c.kind() {
+            IndexKind::CreateValue => collection.create_index(&field),
+            IndexKind::DropValue => collection.drop_index(&field),
+            IndexKind::CreateVector => {
+                collection.create_vector_index(&field, c.dim() as usize);
+                Ok(())
+            }
+            IndexKind::DropVector => {
+                collection.drop_vector_index(&field);
+                Ok(())
+            }
+            IndexKind::CreateText => {
+                collection.create_text_index(&field);
+                Ok(())
+            }
+            IndexKind::DropText => {
+                collection.drop_text_index(&field);
+                Ok(())
+            }
+            IndexKind(_) => {
+                return err_response(
+                    req_id,
+                    Status::InternalError,
+                    &format!("unknown IndexKind discriminant {}", c.kind().0),
+                );
+            }
+        };
+        match result {
+            Ok(()) => {
+                let mut b = FlatBufferBuilder::new();
+                let r = wire::IndexRes::create(&mut b, &wire::IndexResArgs::default());
+                finish_ok(
+                    &mut b,
+                    req_id,
+                    Some((wire::ResponseBody::IndexRes, r.as_union_value())),
+                )
+            }
+            Err(e) => err_response(req_id, status_for_error(&e), &e.to_string()),
+        }
     }
 
     // -- search commands (shared lock: reads) ------------------------------
@@ -708,7 +838,10 @@ impl Server {
         let query: Vec<f32> = c.query().map(|v| v.iter().collect()).unwrap_or_default();
         let limit = c.limit() as usize;
         let guard = self.state.read().unwrap();
-        match guard.get(&coll).map(|col| col.vector_search(&field, &query, limit)) {
+        match guard
+            .get(&coll)
+            .map(|col| col.vector_search(&field, &query, limit))
+        {
             Some(Ok(hits)) => self.search_response(req_id, hits),
             Some(Err(e)) => err_response(req_id, status_for_error(&e), &e.to_string()),
             None => err_response(
@@ -724,7 +857,10 @@ impl Server {
         let query = c.query().unwrap_or_default().to_string();
         let limit = c.limit() as usize;
         let guard = self.state.read().unwrap();
-        match guard.get(&coll).map(|col| col.text_search(&field, &query, limit)) {
+        match guard
+            .get(&coll)
+            .map(|col| col.text_search(&field, &query, limit))
+        {
             Some(Ok(hits)) => self.search_response(req_id, hits),
             Some(Err(e)) => err_response(req_id, status_for_error(&e), &e.to_string()),
             None => err_response(
@@ -739,7 +875,10 @@ impl Server {
         let text_field = c.text_field().unwrap_or_default().to_string();
         let vec_field = c.vec_field().unwrap_or_default().to_string();
         let query_text = c.query_text().unwrap_or_default().to_string();
-        let query_vec: Vec<f32> = c.query_vec().map(|v| v.iter().collect()).unwrap_or_default();
+        let query_vec: Vec<f32> = c
+            .query_vec()
+            .map(|v| v.iter().collect())
+            .unwrap_or_default();
         let limit = c.limit() as usize;
         let guard = self.state.read().unwrap();
         match guard
@@ -771,13 +910,25 @@ impl Server {
                 let d = value_to_wire(&mut b, &doc);
                 wire::SearchHit::create(
                     &mut b,
-                    &wire::SearchHitArgs { doc: Some(d), score: score.into() },
+                    &wire::SearchHitArgs {
+                        doc: Some(d),
+                        score: score.into(),
+                    },
                 )
             })
             .collect();
         let hits_off = b.create_vector(&offs);
-        let r = wire::SearchRes::create(&mut b, &wire::SearchResArgs { hits: Some(hits_off) });
-        finish_ok(&mut b, req_id, Some((wire::ResponseBody::SearchRes, r.as_union_value())))
+        let r = wire::SearchRes::create(
+            &mut b,
+            &wire::SearchResArgs {
+                hits: Some(hits_off),
+            },
+        );
+        finish_ok(
+            &mut b,
+            req_id,
+            Some((wire::ResponseBody::SearchRes, r.as_union_value())),
+        )
     }
 
     fn do_group(&self, req_id: u64, coll: String, c: &wire::GroupCmd) -> Vec<u8> {
@@ -788,7 +939,7 @@ impl Server {
                     req_id,
                     Status::InternalError,
                     &format!("unknown AggFn discriminant {}", c.agg_fn().0),
-                )
+                );
             }
         };
         let filter = c.filter().map(value_from_wire).unwrap_or_default();
@@ -821,8 +972,17 @@ impl Server {
         let mut b = FlatBufferBuilder::new();
         let offs: Vec<_> = groups.iter().map(|g| value_to_wire(&mut b, g)).collect();
         let groups_off = b.create_vector(&offs);
-        let r = wire::GroupRes::create(&mut b, &wire::GroupResArgs { groups: Some(groups_off) });
-        finish_ok(&mut b, req_id, Some((wire::ResponseBody::GroupRes, r.as_union_value())))
+        let r = wire::GroupRes::create(
+            &mut b,
+            &wire::GroupResArgs {
+                groups: Some(groups_off),
+            },
+        );
+        finish_ok(
+            &mut b,
+            req_id,
+            Some((wire::ResponseBody::GroupRes, r.as_union_value())),
+        )
     }
 }
 
@@ -863,18 +1023,33 @@ mod tests {
 
     #[test]
     fn status_maps_every_store_error() {
-        assert_eq!(status_for_error(&StoreError::NotAnObject), Status::NotAnObject);
-        assert_eq!(status_for_error(&StoreError::IdMustBeString), Status::IdMustBeString);
+        assert_eq!(
+            status_for_error(&StoreError::NotAnObject),
+            Status::NotAnObject
+        );
+        assert_eq!(
+            status_for_error(&StoreError::IdMustBeString),
+            Status::IdMustBeString
+        );
         assert_eq!(
             status_for_error(&StoreError::DuplicateId("x".into())),
             Status::DuplicateId
         );
         assert_eq!(
-            status_for_error(&StoreError::IdMismatch { expected: "a".into(), found: "b".into() }),
+            status_for_error(&StoreError::IdMismatch {
+                expected: "a".into(),
+                found: "b".into()
+            }),
             Status::IdMismatch
         );
-        assert_eq!(status_for_error(&StoreError::NoIndex("f".into())), Status::NoIndex);
-        assert_eq!(status_for_error(&StoreError::PrimaryIndex), Status::PrimaryIndex);
+        assert_eq!(
+            status_for_error(&StoreError::NoIndex("f".into())),
+            Status::NoIndex
+        );
+        assert_eq!(
+            status_for_error(&StoreError::PrimaryIndex),
+            Status::PrimaryIndex
+        );
         assert_eq!(status_for_error(&StoreError::NoMatch), Status::NoMatch);
         assert_eq!(
             status_for_error(&StoreError::InvalidUpdate("bad".into())),
@@ -898,7 +1073,10 @@ mod tests {
             ("f".to_string(), Value::F64(1.5)),
             ("b".to_string(), Value::Bool(true)),
             ("s".to_string(), Value::Null),
-            ("arr".to_string(), Value::Array(vec![Value::I64(1), Value::Str("x".into())])),
+            (
+                "arr".to_string(),
+                Value::Array(vec![Value::I64(1), Value::Str("x".into())]),
+            ),
         ]);
         let mut b = FlatBufferBuilder::new();
         let off = value_to_wire(&mut b, &v);

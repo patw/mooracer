@@ -43,6 +43,9 @@ from .wire.FindRes import FindRes
 from .wire.GroupCmd import GroupCmd
 from .wire.GroupRes import GroupRes
 from .wire.HybridSearchCmd import HybridSearchCmd
+from .wire.IndexCmd import IndexCmd
+from .wire.IndexKind import IndexKind
+from .wire.IndexRes import IndexRes
 from .wire.InsertCmd import InsertCmd
 from .wire.InsertRes import InsertRes
 from .wire.ReplaceCmd import ReplaceCmd
@@ -97,6 +100,13 @@ from .wire.HybridSearchCmd import (
     HybridSearchCmdEnd,
     HybridSearchCmdStart,
     HybridSearchCmdStartQueryVecVector,
+)
+from .wire.IndexCmd import (
+    IndexCmdAddDim,
+    IndexCmdAddField,
+    IndexCmdAddKind,
+    IndexCmdEnd,
+    IndexCmdStart,
 )
 from .wire.InsertCmd import (
     InsertCmdAddDocs,
@@ -175,6 +185,7 @@ _BODY = {
     ResponseBody.SearchRes: SearchRes,
     ResponseBody.GroupRes: GroupRes,
     ResponseBody.StatsRes: StatsRes,
+    ResponseBody.IndexRes: IndexRes,
 }
 
 _STATUS_NAMES = {
@@ -607,6 +618,38 @@ class Collection:
             "per_index": per,
         }
 
+    # -- index management (wire-level; enables search at runtime) ------------
+
+    def create_index(self, field: str) -> None:
+        """Create a value field index on `field` (enables equality/range scans)."""
+        self.client._rpc(self.name, Command.IndexCmd,
+                         lambda b: _build_index(b, IndexKind.CreateValue, field, 0))
+
+    def drop_index(self, field: str) -> None:
+        """Drop a value field index on `field`. `_id` cannot be dropped."""
+        self.client._rpc(self.name, Command.IndexCmd,
+                         lambda b: _build_index(b, IndexKind.DropValue, field, 0))
+
+    def create_vector_index(self, field: str, dim: int) -> None:
+        """Create a vector index on `field` with dimension `dim`."""
+        self.client._rpc(self.name, Command.IndexCmd,
+                         lambda b: _build_index(b, IndexKind.CreateVector, field, dim))
+
+    def drop_vector_index(self, field: str) -> None:
+        """Drop a vector index on `field`."""
+        self.client._rpc(self.name, Command.IndexCmd,
+                         lambda b: _build_index(b, IndexKind.DropVector, field, 0))
+
+    def create_text_index(self, field: str) -> None:
+        """Create a BM25 text index on `field`."""
+        self.client._rpc(self.name, Command.IndexCmd,
+                         lambda b: _build_index(b, IndexKind.CreateText, field, 0))
+
+    def drop_text_index(self, field: str) -> None:
+        """Drop a text index on `field`."""
+        self.client._rpc(self.name, Command.IndexCmd,
+                         lambda b: _build_index(b, IndexKind.DropText, field, 0))
+
 
 # ---------------------------------------------------------------------------
 # Lazy query chain: find -> sort/skip/limit -> terminal
@@ -822,3 +865,12 @@ def _build_delete(b, filter, many) -> int:
 def _build_stats(b) -> int:
     StatsCmdStart(b)
     return StatsCmdEnd(b)
+
+
+def _build_index(b, kind, field, dim) -> int:
+    field_off = b.CreateString(field.encode("utf-8"))
+    IndexCmdStart(b)
+    IndexCmdAddKind(b, kind)
+    IndexCmdAddField(b, field_off)
+    IndexCmdAddDim(b, int(dim))
+    return IndexCmdEnd(b)

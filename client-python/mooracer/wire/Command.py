@@ -16,3 +16,4 @@ class Command(object):
     HybridSearchCmd = 10
     GroupCmd = 11
     StatsCmd = 12
+    IndexCmd = 13

@@ -14,3 +14,4 @@ class ResponseBody(object):
     SearchRes = 8
     GroupRes = 9
     StatsRes = 10
+    IndexRes = 11

@@ -1,0 +1,77 @@
+name: CI
+
+# Runs on every push to main and on pull requests. This is the gate the repo
+# holds itself to: format + lint + test (Rust) and the Python client suite.
+#
+# The `wire` crate regenerates FlatBuffers types from `schema/mooracer.fbs` in
+# its `build.rs`, so every job that touches Rust needs the `flatc` compiler on
+# PATH (the release `mooracer-server` / `mooracer-devserver` bins are what the
+# Python tests drive).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  rust:
+    name: Rust (fmt · clippy · test · build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install flatc (FlatBuffers compiler)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatbuffers-compiler
+          flatc --version
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format check
+        run: cargo fmt --check
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test
+
+      - name: Build (release)
+        run: cargo build --release
+
+  python:
+    name: Python client (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install flatc (FlatBuffers compiler)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatbuffers-compiler
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the Python client (+ test deps)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ./client-python
+          pip install pytest
+
+      - name: Run the Python test suite
+        # The tests boot a live mooracer-server over TCP; the conftest builds
+        # the release devserver binary if it is missing.
+        run: python -m pytest client-python/tests -q

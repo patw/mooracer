@@ -37,10 +37,29 @@ fn build_herd() -> Collection {
     let mut c = Collection::new("hybrid");
     c.create_text_index("body");
     c.create_vector_index("embedding", 2);
-    c.insert(doc("alpha", &[("body", s("moo the alpha cow")), ("embedding", vec2(1.0, 0.0))])).unwrap();
-    c.insert(doc("gamma", &[("body", s("moo the gamma cow")), ("embedding", vec2(1.0, 1.0))])).unwrap();
-    c.insert(doc("beta", &[("body", s("just a horse")), ("embedding", vec2(0.0, 1.0))])).unwrap();
-    c.insert(doc("delta", &[("body", s("a zebra grazing"))])).unwrap();
+    c.insert(doc(
+        "alpha",
+        &[
+            ("body", s("moo the alpha cow")),
+            ("embedding", vec2(1.0, 0.0)),
+        ],
+    ))
+    .unwrap();
+    c.insert(doc(
+        "gamma",
+        &[
+            ("body", s("moo the gamma cow")),
+            ("embedding", vec2(1.0, 1.0)),
+        ],
+    ))
+    .unwrap();
+    c.insert(doc(
+        "beta",
+        &[("body", s("just a horse")), ("embedding", vec2(0.0, 1.0))],
+    ))
+    .unwrap();
+    c.insert(doc("delta", &[("body", s("a zebra grazing"))]))
+        .unwrap();
     c
 }
 
@@ -67,7 +86,9 @@ fn hybrid_search_empty_collection_returns_empty() {
     let mut c = Collection::new("h");
     c.create_text_index("body");
     c.create_vector_index("embedding", 2);
-    let hits = c.hybrid_search("body", "embedding", "moo", &[1.0, 0.0], 10).unwrap();
+    let hits = c
+        .hybrid_search("body", "embedding", "moo", &[1.0, 0.0], 10)
+        .unwrap();
     assert!(hits.is_empty(), "no ranked docs -> empty result");
 }
 
@@ -77,7 +98,9 @@ fn hybrid_search_empty_collection_returns_empty() {
 fn hybrid_fusion_ranks_a_doc_in_both_rankings_at_the_top() {
     let c = build_herd();
     // Query that is strong in both signals for "alpha".
-    let hits = c.hybrid_search("body", "embedding", "moo", &[1.0, 0.0], 0).unwrap();
+    let hits = c
+        .hybrid_search("body", "embedding", "moo", &[1.0, 0.0], 0)
+        .unwrap();
     let ids: Vec<&str> = hits.iter().map(|h| id_of(&h.0)).collect();
     // alpha is #1 in the text ranking (inserted first, "moo") and #1 in the
     // vector ranking (cos(1,0)=1) -> it earns two rank-1 contributions, the
@@ -94,7 +117,9 @@ fn hybrid_fusion_ranks_a_doc_in_both_rankings_at_the_top() {
 #[test]
 fn hybrid_fusion_is_a_union_of_the_two_rankings() {
     let c = build_herd();
-    let hits = c.hybrid_search("body", "embedding", "moo", &[1.0, 0.0], 0).unwrap();
+    let hits = c
+        .hybrid_search("body", "embedding", "moo", &[1.0, 0.0], 0)
+        .unwrap();
     let ids: Vec<&str> = hits.iter().map(|h| id_of(&h.0)).collect();
     // "beta" contains no "moo" (absent from the text ranking) but its
     // embedding is the worst vector match — it must STILL surface, proving
@@ -104,10 +129,17 @@ fn hybrid_fusion_is_a_union_of_the_two_rankings() {
         "a doc ranked by only one signal must appear (union), got {ids:?}"
     );
     // "delta" is in neither ranking (no "moo", no embedding) -> absent.
-    assert!(!ids.contains(&"delta"), "a doc in neither ranking is absent, got {ids:?}");
+    assert!(
+        !ids.contains(&"delta"),
+        "a doc in neither ranking is absent, got {ids:?}"
+    );
     // Exactly the three docs in at least one ranking.
     assert_eq!(ids.len(), 3, "got {ids:?}");
-    assert_eq!(ids.last(), Some(&"beta"), "beta is the worst fused doc, got {ids:?}");
+    assert_eq!(
+        ids.last(),
+        Some(&"beta"),
+        "beta is the worst fused doc, got {ids:?}"
+    );
 }
 
 #[test]
@@ -122,11 +154,25 @@ fn hybrid_scores_are_the_rrf_sum_of_rank_contributions() {
     // by index (insertion) order: alpha, beta, gamma -> ranks 1, 2, 3.
     // Give them distinct, mutually-aligned embeddings so the vector ranking is
     // alpha > beta > gamma (ranks 1, 2, 3) — same order as the text tie-break.
-    c.insert(doc("alpha", &[("body", s("moo")), ("embedding", vec2(1.0, 0.0))])).unwrap();
-    c.insert(doc("beta", &[("body", s("moo")), ("embedding", vec2(0.9, 0.1))])).unwrap();
-    c.insert(doc("gamma", &[("body", s("moo")), ("embedding", vec2(0.5, 0.5))])).unwrap();
+    c.insert(doc(
+        "alpha",
+        &[("body", s("moo")), ("embedding", vec2(1.0, 0.0))],
+    ))
+    .unwrap();
+    c.insert(doc(
+        "beta",
+        &[("body", s("moo")), ("embedding", vec2(0.9, 0.1))],
+    ))
+    .unwrap();
+    c.insert(doc(
+        "gamma",
+        &[("body", s("moo")), ("embedding", vec2(0.5, 0.5))],
+    ))
+    .unwrap();
 
-    let hits = c.hybrid_search("body", "embedding", "moo", &[1.0, 0.0], 0).unwrap();
+    let hits = c
+        .hybrid_search("body", "embedding", "moo", &[1.0, 0.0], 0)
+        .unwrap();
     assert_eq!(hits.len(), 3);
     // alpha: 1/(K+1) twice; beta: 1/(K+2) twice; gamma: 1/(K+3) twice.
     let k = RRF_K as f64;
@@ -134,7 +180,12 @@ fn hybrid_scores_are_the_rrf_sum_of_rank_contributions() {
     let want_ids = ["alpha", "beta", "gamma"];
     for (i, (hit, exp)) in hits.iter().zip(expect.iter()).enumerate() {
         assert_eq!(id_of(&hit.0), want_ids[i]);
-        assert!((hit.1 - *exp).abs() < 1e-12, "score {i}: {} != {}", hit.1, exp);
+        assert!(
+            (hit.1 - *exp).abs() < 1e-12,
+            "score {i}: {} != {}",
+            hit.1,
+            exp
+        );
     }
 }
 
@@ -143,13 +194,32 @@ fn hybrid_scores_are_the_rrf_sum_of_rank_contributions() {
 #[test]
 fn hybrid_search_limit_is_top_k_and_zero_means_all() {
     let c = build_herd();
-    let all = c.hybrid_search("body", "embedding", "moo", &[1.0, 0.0], 0).unwrap();
+    let all = c
+        .hybrid_search("body", "embedding", "moo", &[1.0, 0.0], 0)
+        .unwrap();
     assert_eq!(all.len(), 3, "3 docs are in at least one ranking");
-    assert_eq!(c.hybrid_search("body", "embedding", "moo", &[1.0, 0.0], 2).unwrap().len(), 2);
-    assert_eq!(c.hybrid_search("body", "embedding", "moo", &[1.0, 0.0], 1).unwrap().len(), 1);
-    assert_eq!(c.hybrid_search("body", "embedding", "moo", &[1.0, 0.0], 50).unwrap().len(), 3);
+    assert_eq!(
+        c.hybrid_search("body", "embedding", "moo", &[1.0, 0.0], 2)
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(
+        c.hybrid_search("body", "embedding", "moo", &[1.0, 0.0], 1)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        c.hybrid_search("body", "embedding", "moo", &[1.0, 0.0], 50)
+            .unwrap()
+            .len(),
+        3
+    );
     // limit(1) is just the top fused doc.
-    let top = c.hybrid_search("body", "embedding", "moo", &[1.0, 0.0], 1).unwrap();
+    let top = c
+        .hybrid_search("body", "embedding", "moo", &[1.0, 0.0], 1)
+        .unwrap();
     assert_eq!(id_of(&top[0].0), "alpha");
 }
 
@@ -158,14 +228,19 @@ fn hybrid_search_returns_the_full_document() {
     let mut c = Collection::new("h");
     c.create_text_index("body");
     c.create_vector_index("embedding", 2);
-    c.insert(doc("a", &[
-        ("body", s("moo the cow")),
-        ("embedding", vec2(1.0, 0.0)),
-        ("name", s("daisy")),
-        ("count", Value::i64(7)),
-    ]))
+    c.insert(doc(
+        "a",
+        &[
+            ("body", s("moo the cow")),
+            ("embedding", vec2(1.0, 0.0)),
+            ("name", s("daisy")),
+            ("count", Value::i64(7)),
+        ],
+    ))
     .unwrap();
-    let hits = c.hybrid_search("body", "embedding", "cow", &[1.0, 0.0], 1).unwrap();
+    let hits = c
+        .hybrid_search("body", "embedding", "cow", &[1.0, 0.0], 1)
+        .unwrap();
     assert_eq!(hits.len(), 1);
     let d = &hits[0].0;
     assert_eq!(id_of(d), "a");
@@ -197,13 +272,18 @@ fn hybrid_search_agrees_with_each_signal_present() {
     // Sanity: the top hybrid hit is present in at least one single-signal
     // result for the same query.
     let c = build_herd();
-    let hybrid = c.hybrid_search("body", "embedding", "moo", &[1.0, 0.0], 0).unwrap();
+    let hybrid = c
+        .hybrid_search("body", "embedding", "moo", &[1.0, 0.0], 0)
+        .unwrap();
     let text_hits = c.text_search("body", "moo", 0).unwrap();
     let vec_hits = c.vector_search("embedding", &[1.0, 0.0], 0).unwrap();
     let text: Vec<&str> = text_hits.iter().map(|h| id_of(&h.0)).collect();
     let vec: Vec<&str> = vec_hits.iter().map(|h| id_of(&h.0)).collect();
     for h in &hybrid {
         let id = id_of(&h.0);
-        assert!(text.contains(&id) || vec.contains(&id), "hybrid hit {id} must be in a signal ranking");
+        assert!(
+            text.contains(&id) || vec.contains(&id),
+            "hybrid hit {id} must be in a signal ranking"
+        );
     }
 }

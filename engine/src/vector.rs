@@ -90,7 +90,11 @@ impl VectorIndex {
         for x in values {
             norm_sq += x * x;
         }
-        let scale = if norm_sq > 0.0 { 1.0 / norm_sq.sqrt() } else { 1.0 };
+        let scale = if norm_sq > 0.0 {
+            1.0 / norm_sq.sqrt()
+        } else {
+            1.0
+        };
         self.vecs.reserve(values.len());
         for x in values {
             self.vecs.push(x * scale);
@@ -129,7 +133,11 @@ impl VectorIndex {
         for x in query {
             qnorm_sq += x * x;
         }
-        let scale = if qnorm_sq > 0.0 { 1.0 / qnorm_sq.sqrt() } else { 0.0 };
+        let scale = if qnorm_sq > 0.0 {
+            1.0 / qnorm_sq.sqrt()
+        } else {
+            0.0
+        };
         let q: Vec<f32> = query.iter().map(|x| x * scale).collect();
 
         // One dot product per document (autovectorized to SIMD).
@@ -214,11 +222,7 @@ mod tests {
 
     #[test]
     fn as_vector_coerces_numbers_and_rejects_bad_shapes() {
-        let good = Value::array_from(vec![
-            Value::i64(1),
-            Value::f64(2.0),
-            Value::i64(3),
-        ]);
+        let good = Value::array_from(vec![Value::i64(1), Value::f64(2.0), Value::i64(3)]);
         assert_eq!(as_vector(Some(&good), 3), Some(vec![1.0, 2.0, 3.0]));
         // wrong dim
         assert!(as_vector(Some(&good), 2).is_none());

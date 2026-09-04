@@ -24,7 +24,9 @@ pub mod value;
 pub mod vector;
 
 pub use agg::{AggFn, GroupQuery};
-pub use collection::{Collection, CollectionStats, HybridHit, IndexStats, RRF_K, StoreError, Transaction};
+pub use collection::{
+    Collection, CollectionStats, HybridHit, IndexStats, RRF_K, StoreError, Transaction,
+};
 pub use index::{FieldIndex, IndexSet};
 pub use query::Query;
 pub use text::{TextHit, TextIndex};

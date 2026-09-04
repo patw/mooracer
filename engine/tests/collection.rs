@@ -16,7 +16,10 @@ fn doc(pairs: &[(&str, Value)]) -> Value {
 fn external_insert_get_roundtrip() {
     let mut c = Collection::new("horses");
     let id = c
-        .insert(doc(&[("name", Value::str("bess")), ("legs", Value::i64(4))]))
+        .insert(doc(&[
+            ("name", Value::str("bess")),
+            ("legs", Value::i64(4)),
+        ]))
         .unwrap();
     assert_eq!(id.len(), 24);
     let d = c.get(&id).expect("doc retrievable by generated id");
@@ -38,7 +41,10 @@ fn external_duplicate_and_type_errors() {
     );
     assert_eq!(c.insert(Value::bool(true)), Err(StoreError::NotAnObject));
     // display is useful in server error messages
-    assert_eq!(StoreError::IdMustBeString.to_string(), "`_id` must be a string");
+    assert_eq!(
+        StoreError::IdMustBeString.to_string(),
+        "`_id` must be a string"
+    );
 }
 
 #[test]
@@ -89,13 +95,24 @@ fn external_two_collections_are_independent() {
     let ib = auto(&b);
     assert_eq!(ia.len(), 200);
     assert_eq!(ib.len(), 200);
-    assert!(ia.is_disjoint(&ib), "process-wide id counter keeps collections disjoint");
+    assert!(
+        ia.is_disjoint(&ib),
+        "process-wide id counter keeps collections disjoint"
+    );
 }
 #[test]
 fn external_delete_one_returns_bool_and_removes() {
     let mut c = Collection::new("t");
-    c.insert(doc(&[("_id", Value::str("a")), ("kind", Value::str("moo"))])).unwrap();
-    c.insert(doc(&[("_id", Value::str("b")), ("kind", Value::str("bee"))])).unwrap();
+    c.insert(doc(&[
+        ("_id", Value::str("a")),
+        ("kind", Value::str("moo")),
+    ]))
+    .unwrap();
+    c.insert(doc(&[
+        ("_id", Value::str("b")),
+        ("kind", Value::str("bee")),
+    ]))
+    .unwrap();
     assert!(c.delete_one(doc(&[("kind", Value::str("moo"))])));
     assert!(!c.contains("a"));
     assert!(c.contains("b"));
@@ -108,7 +125,11 @@ fn external_delete_one_returns_bool_and_removes() {
 fn external_delete_many_counts_and_removes() {
     let mut c = Collection::new("t");
     for i in 0..5 {
-        c.insert(doc(&[("_id", Value::str(format!("cow{i}"))), ("age", Value::i64(i as i64))])).unwrap();
+        c.insert(doc(&[
+            ("_id", Value::str(format!("cow{i}"))),
+            ("age", Value::i64(i as i64)),
+        ]))
+        .unwrap();
     }
     let n = c.delete_many(doc(&[("age", doc(&[("$gte", Value::i64(2))]))]));
     assert_eq!(n, 3, "age 2,3,4 match");
@@ -119,9 +140,12 @@ fn external_delete_many_counts_and_removes() {
 #[test]
 fn external_delete_preserves_index_invariants() {
     let mut c = Collection::new("t");
-    c.insert(doc(&[("_id", Value::str("a")), ("score", Value::i64(10))])).unwrap();
-    c.insert(doc(&[("_id", Value::str("b")), ("score", Value::i64(20))])).unwrap();
-    c.insert(doc(&[("_id", Value::str("c")), ("score", Value::i64(30))])).unwrap();
+    c.insert(doc(&[("_id", Value::str("a")), ("score", Value::i64(10))]))
+        .unwrap();
+    c.insert(doc(&[("_id", Value::str("b")), ("score", Value::i64(20))]))
+        .unwrap();
+    c.insert(doc(&[("_id", Value::str("c")), ("score", Value::i64(30))]))
+        .unwrap();
     c.create_index("score").unwrap();
     c.delete_many(doc(&[("score", doc(&[("$lt", Value::i64(25))]))]));
     let score = c.index("score").unwrap();
@@ -136,13 +160,16 @@ fn external_delete_preserves_index_invariants() {
 #[test]
 fn external_transaction_commit_and_index_invariants() {
     let mut c = Collection::new("horses");
-    c.insert(doc(&[("_id", Value::str("a")), ("age", Value::i64(3))])).unwrap();
-    c.insert(doc(&[("_id", Value::str("b")), ("age", Value::i64(5))])).unwrap();
+    c.insert(doc(&[("_id", Value::str("a")), ("age", Value::i64(3))]))
+        .unwrap();
+    c.insert(doc(&[("_id", Value::str("b")), ("age", Value::i64(5))]))
+        .unwrap();
     c.create_index("age").unwrap();
 
     let tx: Transaction<'_> = c.begin();
     let mut tx = tx;
-    tx.insert(doc(&[("_id", Value::str("c")), ("age", Value::i64(4))])).unwrap();
+    tx.insert(doc(&[("_id", Value::str("c")), ("age", Value::i64(4))]))
+        .unwrap();
     // pre-batch read through the public API: the insert is invisible
     assert_eq!(tx.count(doc(&[])), 2);
     tx.commit().unwrap();

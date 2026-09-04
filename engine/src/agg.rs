@@ -122,10 +122,7 @@ impl<'c> GroupQuery<'c> {
         // functions decide how to treat absence).
         let mut pairs: Vec<(Value, Option<Value>)> = Vec::new();
         self.q.for_each_pipelined(|doc| {
-            let key = doc
-                .get(&self.group_field)
-                .cloned()
-                .unwrap_or(Value::Null);
+            let key = doc.get(&self.group_field).cloned().unwrap_or(Value::Null);
             let fv = if f == AggFn::Count {
                 None
             } else {
@@ -162,11 +159,7 @@ impl<'c> GroupQuery<'c> {
                     (Some(x), Some(y)) => x.cmp(y),
                     _ => std::cmp::Ordering::Equal,
                 });
-                if desc {
-                    o.reverse()
-                } else {
-                    o
-                }
+                if desc { o.reverse() } else { o }
             });
         }
         if self.limit > 0 {
@@ -184,11 +177,11 @@ fn result_doc(key: &Value, f: AggFn, run: &[(Value, Option<Value>)]) -> Value {
         AggFn::Mean => {
             let mut n = 0usize;
             let mut acc = (0i128, 0f64, false);
-            for &(_, ref fv) in run {
-                if let Some(v) = fv {
-                    if add_numeric(v, &mut acc) {
-                        n += 1;
-                    }
+            for (_, fv) in run {
+                if let Some(v) = fv
+                    && add_numeric(v, &mut acc)
+                {
+                    n += 1;
                 }
             }
             if n == 0 {
@@ -200,37 +193,39 @@ fn result_doc(key: &Value, f: AggFn, run: &[(Value, Option<Value>)]) -> Value {
         }
         AggFn::Min => run
             .iter()
-            .filter_map(|&(_, ref fv)| fv.clone())
+            .filter_map(|(_, fv)| fv.clone())
             .reduce(|m, v| if m <= v { m } else { v })
             .unwrap_or(Value::Null),
         AggFn::Max => run
             .iter()
-            .filter_map(|&(_, ref fv)| fv.clone())
+            .filter_map(|(_, fv)| fv.clone())
             .reduce(|m, v| if m <= v { v } else { m })
             .unwrap_or(Value::Null),
-        AggFn::Collect => {
-            Value::array_from(run.iter().map(|&(_, ref fv)| fv.clone().unwrap_or(Value::Null)).collect())
-        }
-        AggFn::First => run.first().and_then(|&(_, ref fv)| fv.clone()).unwrap_or(Value::Null),
+        AggFn::Collect => Value::array_from(
+            run.iter()
+                .map(|(_, fv)| fv.clone().unwrap_or(Value::Null))
+                .collect(),
+        ),
+        AggFn::First => run
+            .first()
+            .and_then(|(_, fv)| fv.clone())
+            .unwrap_or(Value::Null),
         AggFn::Last => run
             .last()
-            .and_then(|&(_, ref fv)| fv.clone())
+            .and_then(|(_, fv)| fv.clone())
             .unwrap_or(Value::Null),
     };
-    Value::object_from(vec![(
-        String::from("_id"),
-        key.clone(),
-    ), (
-        String::from(f.name()),
-        res,
-    )])
+    Value::object_from(vec![
+        (String::from("_id"), key.clone()),
+        (String::from(f.name()), res),
+    ])
 }
 
 /// Sum a run's numeric field values (missing / non-numeric skipped).
 fn sum_values(run: &[(Value, Option<Value>)]) -> Value {
     let mut acc = (0i128, 0f64, false); // (i128 int acc, f64 acc, float-seen)
     let mut any = false;
-    for &(_, ref fv) in run {
+    for (_, fv) in run {
         if let Some(v) = fv {
             any = true;
             add_numeric(v, &mut acc);
@@ -284,7 +279,12 @@ mod tests {
     use crate::value::Value;
 
     fn obj(pairs: &[(&str, Value)]) -> Value {
-        Value::object_from(pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect())
+        Value::object_from(
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.clone()))
+                .collect(),
+        )
     }
 
     fn herd() -> Collection {
@@ -334,7 +334,10 @@ mod tests {
     #[test]
     fn count_groups() {
         let c = herd();
-        let g = c.find(Value::object()).group("region").agg(AggFn::Count, "");
+        let g = c
+            .find(Value::object())
+            .group("region")
+            .agg(AggFn::Count, "");
         assert_eq!(g.len(), 2);
         // default group order: key total order ("east" < "west")
         assert_eq!(g[0].get("_id"), Some(&Value::str("east")));
@@ -359,7 +362,10 @@ mod tests {
     #[test]
     fn sum_stays_i64_and_widens_on_float() {
         let c = herd();
-        let g = c.find(Value::object()).group("region").agg(AggFn::Sum, "price");
+        let g = c
+            .find(Value::object())
+            .group("region")
+            .agg(AggFn::Sum, "price");
         // west: 5 + 30 = 35 (all i64 → i64)
         assert_eq!(g[1].get("sum"), Some(&Value::i64(35)));
         // east: 10 + 20 + 15.5 → f64 45.5
@@ -373,7 +379,10 @@ mod tests {
     fn sum_no_numerics_is_zero_and_skips_non_numeric() {
         let c = herd();
         // "tag": west has "y" (non-numeric) + missing → no numerics → 0
-        let g = c.find(Value::object()).group("region").agg(AggFn::Sum, "tag");
+        let g = c
+            .find(Value::object())
+            .group("region")
+            .agg(AggFn::Sum, "tag");
         assert_eq!(g[0].get("sum"), Some(&Value::i64(0)));
         assert_eq!(g[1].get("sum"), Some(&Value::i64(0)));
     }
@@ -401,24 +410,36 @@ mod tests {
     #[test]
     fn mean_of_numerics_and_null_when_none() {
         let c = herd();
-        let g = c.find(Value::object()).group("region").agg(AggFn::Mean, "price");
+        let g = c
+            .find(Value::object())
+            .group("region")
+            .agg(AggFn::Mean, "price");
         let east = g[0].get("mean").unwrap().as_f64().unwrap();
         assert!((east - 45.5 / 3.0).abs() < 1e-12);
         let west = g[1].get("mean").unwrap().as_f64().unwrap();
         assert!((west - 17.5).abs() < 1e-12);
         // mean of a non-numeric field → Null
-        let g = c.find(Value::object()).group("region").agg(AggFn::Mean, "tag");
+        let g = c
+            .find(Value::object())
+            .group("region")
+            .agg(AggFn::Mean, "tag");
         assert_eq!(g[0].get("mean"), Some(&Value::Null));
     }
 
     #[test]
     fn min_max_total_order_and_missing_skipped() {
         let c = herd();
-        let g = c.find(Value::object()).group("region").agg(AggFn::Min, "price");
+        let g = c
+            .find(Value::object())
+            .group("region")
+            .agg(AggFn::Min, "price");
         // east min = 10 (10 < 15.5 < 20 in the total order)
         assert_eq!(g[0].get("min"), Some(&Value::i64(10)));
         assert_eq!(g[1].get("min"), Some(&Value::i64(5)));
-        let g = c.find(Value::object()).group("region").agg(AggFn::Max, "price");
+        let g = c
+            .find(Value::object())
+            .group("region")
+            .agg(AggFn::Max, "price");
         assert_eq!(g[0].get("max"), Some(&Value::i64(20)));
         assert_eq!(g[1].get("max"), Some(&Value::i64(30)));
         // no present values → Null
@@ -434,10 +455,7 @@ mod tests {
         let c = herd();
         // Sort by price so the stream (and hence within-group) order is
         // deterministic: east = a(10), e(15.5), b(20); west = c(5), d(30).
-        let q = c
-            .find(Value::object())
-            .sort("price", false)
-            .group("region");
+        let q = c.find(Value::object()).sort("price", false).group("region");
         let g = q.agg(AggFn::Collect, "tag");
         assert_eq!(
             g[0].get("collect"),
@@ -549,10 +567,18 @@ mod tests {
         // The total order treats I64(1) == F64(1.0): both docs land in the
         // same group.
         let mut c = Collection::new("t");
-        c.insert(obj(&[("_id", Value::str("a")), ("k", Value::i64(1)), ("v", Value::i64(1))]))
-            .unwrap();
-        c.insert(obj(&[("_id", Value::str("b")), ("k", Value::f64(1.0)), ("v", Value::i64(2))]))
-            .unwrap();
+        c.insert(obj(&[
+            ("_id", Value::str("a")),
+            ("k", Value::i64(1)),
+            ("v", Value::i64(1)),
+        ]))
+        .unwrap();
+        c.insert(obj(&[
+            ("_id", Value::str("b")),
+            ("k", Value::f64(1.0)),
+            ("v", Value::i64(2)),
+        ]))
+        .unwrap();
         let g = c.find(Value::object()).group("k").agg(AggFn::Count, "");
         assert_eq!(g.len(), 1);
         assert_eq!(count_of(&g[0]), 2);

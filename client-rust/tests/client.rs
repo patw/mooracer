@@ -16,7 +16,12 @@ use mooracer_wire::Status;
 // ---------------------------------------------------------------------------
 
 fn obj(pairs: &[(&str, Value)]) -> Value {
-    Value::Object(pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect())
+    Value::Object(
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect(),
+    )
 }
 
 /// Build an engine `Value` from a JSON-ish inline shape using small helpers.
@@ -58,7 +63,9 @@ fn insert_assigns_and_returns_id() {
     let mut herd = c.collection("c");
 
     // Explicit _id is returned verbatim.
-    let id = herd.insert(&obj(&[("_id", str("a")), ("age", val(3))])).unwrap();
+    let id = herd
+        .insert(&obj(&[("_id", str("a")), ("age", val(3))]))
+        .unwrap();
     assert_eq!(id, "a");
 
     // No _id → an auto-generated 24-char lowercase hex id.
@@ -89,7 +96,10 @@ fn typed_error_duplicate_id_surfaces() {
     let mut c = seeded_client("c", &[obj(&[("_id", str("1"))])]);
     let mut herd = c.collection("c");
     let err = herd.insert(&obj(&[("_id", str("1"))])).unwrap_err();
-    assert!(matches!(err, Error::Server(Status::DuplicateId, _)), "{err:?}");
+    assert!(
+        matches!(err, Error::Server(Status::DuplicateId, _)),
+        "{err:?}"
+    );
     assert_eq!(err.status(), Some(Status::DuplicateId));
     assert!(!err.to_string().is_empty());
 }
@@ -190,11 +200,11 @@ fn value_tree_roundtrips_through_client() {
         ("b", Value::Bool(true)),
         ("n", Value::Null),
         ("s", str("moo 🐄")),
-        ("arr", Value::Array(vec![val(1), str("x"), Value::Bool(false)])),
         (
-            "obj",
-            obj(&[("k1", val(7)), ("k2", str("inner"))]),
+            "arr",
+            Value::Array(vec![val(1), str("x"), Value::Bool(false)]),
         ),
+        ("obj", obj(&[("k1", val(7)), ("k2", str("inner"))])),
     ]);
     let mut c = seeded_client("deep", &[]);
     let mut herd = c.collection("deep");
@@ -211,7 +221,10 @@ fn value_tree_roundtrips_through_client() {
 
 #[test]
 fn update_one_applies_and_errors_on_no_match() {
-    let docs = [obj(&[("_id", str("a")), ("n", val(1))]), obj(&[("_id", str("b")), ("n", val(2))])];
+    let docs = [
+        obj(&[("_id", str("a")), ("n", val(1))]),
+        obj(&[("_id", str("b")), ("n", val(2))]),
+    ];
     let mut c = seeded_client("c", &docs);
     let mut herd = c.collection("c");
 
@@ -252,7 +265,9 @@ fn replace_one_preserves_id_and_errors_on_no_match() {
     assert!(got[0].get("y").is_none(), "replaced wholesale");
 
     // No match → NoMatch.
-    let err = herd.replace_one(obj(&[("_id", str("zzz"))]), obj(&[("x", val(1))])).unwrap_err();
+    let err = herd
+        .replace_one(obj(&[("_id", str("zzz"))]), obj(&[("x", val(1))]))
+        .unwrap_err();
     assert!(matches!(err, Error::Server(Status::NoMatch, _)), "{err:?}");
 }
 
@@ -290,8 +305,14 @@ fn vector_search_over_client() {
         .seed_docs(
             "vec",
             &[
-                obj(&[("_id", str("p")), ("emb", Value::Array(vec![val(1), val(0)]))]),
-                obj(&[("_id", str("q")), ("emb", Value::Array(vec![val(0), val(1)]))]),
+                obj(&[
+                    ("_id", str("p")),
+                    ("emb", Value::Array(vec![val(1), val(0)])),
+                ]),
+                obj(&[
+                    ("_id", str("q")),
+                    ("emb", Value::Array(vec![val(0), val(1)])),
+                ]),
             ],
         )
         .unwrap();
@@ -323,6 +344,54 @@ fn vector_search_no_index_is_typed_error() {
 }
 
 #[test]
+fn index_management_over_client_enables_search() {
+    let mut c = seeded_client("ix", &[]);
+    let mut herd = c.collection("ix");
+
+    // Without indexes, search is a typed NoIndex error.
+    let err = herd.vector_search("emb", &[1.0, 0.0], 5).unwrap_err();
+    assert!(matches!(err, Error::Server(Status::NoIndex, _)), "{err:?}");
+
+    herd.insert(&obj(&[
+        ("_id", str("a")),
+        ("kind", str("cow")),
+        ("emb", Value::Array(vec![val(1), val(0)])),
+        ("body", str("mooing cow")),
+    ]))
+    .unwrap();
+    herd.insert(&obj(&[
+        ("_id", str("b")),
+        ("kind", str("pig")),
+        ("emb", Value::Array(vec![val(0), val(1)])),
+        ("body", str("snorting pig")),
+    ]))
+    .unwrap();
+
+    // Create the indexes over the wire (no server-side seeding).
+    herd.create_index("kind").unwrap();
+    herd.create_vector_index("emb", 2).unwrap();
+    herd.create_text_index("body").unwrap();
+
+    let hits = herd.vector_search("emb", &[1.0, 0.0], 0).unwrap();
+    assert_eq!(id_of(&hits[0].0), "a");
+    let thits = herd.text_search("body", "cow", 0).unwrap();
+    assert_eq!(id_of(&thits[0].0), "a");
+    // Value index drives a range find (no full scan needed).
+    assert_eq!(
+        herd.count(Value::object_from(vec![("kind".into(), str("cow"))]))
+            .unwrap(),
+        1
+    );
+
+    // Dropping the primary `_id` index is a typed error.
+    let err = herd.drop_index("_id").unwrap_err();
+    assert!(
+        matches!(err, Error::Server(Status::PrimaryIndex, _)),
+        "{err:?}"
+    );
+}
+
+#[test]
 fn text_search_over_client() {
     let (server, listener) = mooracer_server::Server::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
@@ -330,8 +399,14 @@ fn text_search_over_client() {
         .seed_docs(
             "docs",
             &[
-                obj(&[("_id", str("moo")), ("text", str("the quick brown cow moo moo"))]),
-                obj(&[("_id", str("milk")), ("text", str("the cold milk of the night"))]),
+                obj(&[
+                    ("_id", str("moo")),
+                    ("text", str("the quick brown cow moo moo")),
+                ]),
+                obj(&[
+                    ("_id", str("milk")),
+                    ("text", str("the cold milk of the night")),
+                ]),
             ],
         )
         .unwrap();
@@ -387,7 +462,9 @@ fn hybrid_search_over_client() {
 
     let mut c = Client::connect(&addr.to_string()).unwrap();
     let mut herd = c.collection("h");
-    let hits = herd.hybrid_search("text", "emb", "moo cow", &[1.0, 0.0], 0).unwrap();
+    let hits = herd
+        .hybrid_search("text", "emb", "moo cow", &[1.0, 0.0], 0)
+        .unwrap();
     assert_eq!(hits.len(), 2);
     assert_eq!(id_of(&hits[0].0), "moo");
     assert!(hits[0].1 > 0.0);
@@ -476,8 +553,10 @@ fn one_connection_many_requests_reuses_buffer() {
     let mut c = seeded_client("c", &[]);
     let mut herd = c.collection("c");
 
-    herd.insert(&obj(&[("_id", str("a")), ("n", val(1))])).unwrap();
-    herd.insert(&obj(&[("_id", str("b")), ("n", val(2))])).unwrap();
+    herd.insert(&obj(&[("_id", str("a")), ("n", val(1))]))
+        .unwrap();
+    herd.insert(&obj(&[("_id", str("b")), ("n", val(2))]))
+        .unwrap();
     assert_eq!(herd.count(all()).unwrap(), 2);
     let docs: Vec<Value> = herd.find(all()).to_list().unwrap();
     assert_eq!(docs.len(), 2);
@@ -485,6 +564,7 @@ fn one_connection_many_requests_reuses_buffer() {
     herd.delete_many(obj(&[])).unwrap();
     assert_eq!(herd.count(all()).unwrap(), 0);
     // The same connection still works after a delete-all.
-    herd.insert(&obj(&[("_id", str("z")), ("n", val(9))])).unwrap();
+    herd.insert(&obj(&[("_id", str("z")), ("n", val(9))]))
+        .unwrap();
     assert_eq!(herd.count(all()).unwrap(), 1);
 }

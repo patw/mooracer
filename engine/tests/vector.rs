@@ -43,7 +43,8 @@ fn vector_search_without_index_is_a_noindex_error() {
 #[test]
 fn wrong_length_query_returns_empty_not_error() {
     let mut c = Collection::new("t");
-    c.insert(doc("a", &[("embedding", vec_of(&[1.0, 0.0, 0.0]))])).unwrap();
+    c.insert(doc("a", &[("embedding", vec_of(&[1.0, 0.0, 0.0]))]))
+        .unwrap();
     c.create_vector_index("embedding", 3);
     // 2-length query against a dim-3 index -> no hits, no error.
     let hits = c.vector_search("embedding", &[1.0, 0.0], 5).unwrap();
@@ -56,9 +57,12 @@ fn wrong_length_query_returns_empty_not_error() {
 fn vector_search_ranks_by_cosine_best_first() {
     let mut c = Collection::new("t");
     c.create_vector_index("embedding", 2);
-    c.insert(doc("east", &[("embedding", vec_of(&[1.0, 0.0]))])).unwrap();
-    c.insert(doc("north", &[("embedding", vec_of(&[0.0, 1.0]))])).unwrap();
-    c.insert(doc("northeast", &[("embedding", vec_of(&[1.0, 1.0]))])).unwrap();
+    c.insert(doc("east", &[("embedding", vec_of(&[1.0, 0.0]))]))
+        .unwrap();
+    c.insert(doc("north", &[("embedding", vec_of(&[0.0, 1.0]))]))
+        .unwrap();
+    c.insert(doc("northeast", &[("embedding", vec_of(&[1.0, 1.0]))]))
+        .unwrap();
 
     // Query due east: east (cos 1) > northeast (cos ~0.707) > north (cos 0).
     let hits = c.vector_search("embedding", &[1.0, 0.0], 0).unwrap();
@@ -70,7 +74,10 @@ fn vector_search_ranks_by_cosine_best_first() {
     assert!(hits[0].1 > hits[1].1 && hits[1].1 > hits[2].1);
     for (_, s) in &hits {
         let sv = *s as f64;
-        assert!((sv >= -1.0 - 1e-6) && (sv <= 1.0 + 1e-6), "score {s} in [-1,1]");
+        assert!(
+            (-1.0 - 1e-6..=1.0 + 1e-6).contains(&sv),
+            "score {s} in [-1,1]"
+        );
     }
     // The top hit (aligned) scores exactly 1.
     assert!((hits[0].1 - 1.0).abs() < 1e-5);
@@ -82,11 +89,14 @@ fn vector_search_ranks_by_cosine_best_first() {
 fn vector_search_returns_the_full_document() {
     let mut c = Collection::new("t");
     c.create_vector_index("embedding", 2);
-    c.insert(doc("a", &[
-        ("embedding", vec_of(&[1.0, 0.0])),
-        ("name", Value::str("moo")),
-        ("count", Value::i64(7)),
-    ]))
+    c.insert(doc(
+        "a",
+        &[
+            ("embedding", vec_of(&[1.0, 0.0])),
+            ("name", Value::str("moo")),
+            ("count", Value::i64(7)),
+        ],
+    ))
     .unwrap();
     let hits = c.vector_search("embedding", &[1.0, 0.0], 1).unwrap();
     assert_eq!(hits.len(), 1);
@@ -94,7 +104,10 @@ fn vector_search_returns_the_full_document() {
     assert_eq!(id_of(d), "a");
     assert_eq!(d.get("name"), Some(&Value::str("moo")));
     assert_eq!(d.get("count"), Some(&Value::i64(7)));
-    assert!(d.get("embedding").is_some(), "full doc clone includes the field");
+    assert!(
+        d.get("embedding").is_some(),
+        "full doc clone includes the field"
+    );
 }
 
 #[test]
@@ -109,9 +122,18 @@ fn vector_search_limit_is_top_k_and_zero_means_all() {
         ))
         .unwrap();
     }
-    assert_eq!(c.vector_search("embedding", &[1.0, 0.0], 3).unwrap().len(), 3);
-    assert_eq!(c.vector_search("embedding", &[1.0, 0.0], 0).unwrap().len(), 8);
-    assert_eq!(c.vector_search("embedding", &[1.0, 0.0], 50).unwrap().len(), 8);
+    assert_eq!(
+        c.vector_search("embedding", &[1.0, 0.0], 3).unwrap().len(),
+        3
+    );
+    assert_eq!(
+        c.vector_search("embedding", &[1.0, 0.0], 0).unwrap().len(),
+        8
+    );
+    assert_eq!(
+        c.vector_search("embedding", &[1.0, 0.0], 50).unwrap().len(),
+        8
+    );
 }
 
 // -- Normalize-unit-vector correctness (scale invariance) ------------------
@@ -122,8 +144,10 @@ fn cosine_is_invariant_to_query_and_doc_scale() {
     c.create_vector_index("embedding", 3);
     // Two parallel (co-directional) docs, one a short unit vector and one a
     // 10x longer non-unit vector — cosine must treat them identically.
-    c.insert(doc("short", &[("embedding", vec_of(&[1.0, 0.0, 0.0]))])).unwrap();
-    c.insert(doc("long", &[("embedding", vec_of(&[10.0, 0.0, 0.0]))])).unwrap();
+    c.insert(doc("short", &[("embedding", vec_of(&[1.0, 0.0, 0.0]))]))
+        .unwrap();
+    c.insert(doc("long", &[("embedding", vec_of(&[10.0, 0.0, 0.0]))]))
+        .unwrap();
 
     // A non-unit query pointing the same way.
     let big = c.vector_search("embedding", &[5.0, 0.0, 0.0], 0).unwrap();
@@ -147,8 +171,10 @@ fn stored_vectors_are_normalized_once_at_write() {
     // as a unit doc.
     let mut c = Collection::new("t");
     c.create_vector_index("embedding", 2);
-    c.insert(doc("unit", &[("embedding", vec_of(&[0.0, 1.0]))])).unwrap();
-    c.insert(doc("scaled", &[("embedding", vec_of(&[0.0, 100.0]))])).unwrap();
+    c.insert(doc("unit", &[("embedding", vec_of(&[0.0, 1.0]))]))
+        .unwrap();
+    c.insert(doc("scaled", &[("embedding", vec_of(&[0.0, 100.0]))]))
+        .unwrap();
     let hits = c.vector_search("embedding", &[0.0, 1.0], 0).unwrap();
     assert_eq!(hits.len(), 2);
     let unit = hits.iter().find(|h| id_of(&h.0) == "unit").unwrap().1;
@@ -158,7 +184,10 @@ fn stored_vectors_are_normalized_once_at_write() {
     assert!((scaled - 1.0).abs() < 1e-5, "scaled score {scaled}");
     // ...and the scaled doc scores identically to the unit doc (scale-invariant
     // thanks to write-time normalization).
-    assert!((unit - scaled).abs() < 1e-5, "unit {unit} vs scaled {scaled}");
+    assert!(
+        (unit - scaled).abs() < 1e-5,
+        "unit {unit} vs scaled {scaled}"
+    );
 }
 
 // -- mixed i64 / f64 elements ----------------------------------------------
@@ -172,7 +201,10 @@ fn mixed_integer_and_float_elements_convert_to_f32() {
     c.insert(doc("a", &[("embedding", mixed)])).unwrap();
     let hits = c.vector_search("embedding", &[1.0, 2.0, 0.0], 1).unwrap();
     assert_eq!(hits.len(), 1);
-    assert!((hits[0].1 - 1.0).abs() < 1e-5, "i64/f64 mix converts to f32 correctly");
+    assert!(
+        (hits[0].1 - 1.0).abs() < 1e-5,
+        "i64/f64 mix converts to f32 correctly"
+    );
 }
 
 // -- missing field / dim mismatch -----------------------------------------
@@ -183,7 +215,8 @@ fn missing_field_doc_is_not_indexed_and_does_not_error() {
     c.create_vector_index("embedding", 2);
     // A doc without the field: fine, not searchable.
     c.insert(doc("nope", &[("x", Value::i64(1))])).unwrap();
-    c.insert(doc("with", &[("embedding", vec_of(&[1.0, 0.0]))])).unwrap();
+    c.insert(doc("with", &[("embedding", vec_of(&[1.0, 0.0]))]))
+        .unwrap();
     let hits = c.vector_search("embedding", &[1.0, 0.0], 0).unwrap();
     assert_eq!(hits.len(), 1, "only the doc with a valid vector is indexed");
     assert_eq!(id_of(&hits[0].0), "with");
@@ -213,7 +246,10 @@ fn insert_with_non_numeric_vector_is_an_error() {
     // A non-numeric element disqualifies the vector.
     let bad = Value::array_from(vec![Value::i64(1), Value::str("x")]);
     let r = c.insert(doc("bad", &[("embedding", bad)]));
-    assert!(matches!(r, Err(StoreError::VectorDimMismatch { found: 2, .. })));
+    assert!(matches!(
+        r,
+        Err(StoreError::VectorDimMismatch { found: 2, .. })
+    ));
     assert_eq!(c.len(), 0);
 }
 
@@ -234,8 +270,10 @@ fn insert_missing_field_after_index_creation_is_fine() {
 fn create_vector_index_backfills_existing_docs() {
     let mut c = Collection::new("t");
     // Insert first, create the index after: it must pick up all valid docs.
-    c.insert(doc("a", &[("embedding", vec_of(&[1.0, 0.0]))])).unwrap();
-    c.insert(doc("b", &[("embedding", vec_of(&[0.0, 1.0]))])).unwrap();
+    c.insert(doc("a", &[("embedding", vec_of(&[1.0, 0.0]))]))
+        .unwrap();
+    c.insert(doc("b", &[("embedding", vec_of(&[0.0, 1.0]))]))
+        .unwrap();
     c.insert(doc("skip", &[("other", Value::i64(1))])).unwrap(); // no embedding
     c.create_vector_index("embedding", 2);
     let hits = c.vector_search("embedding", &[1.0, 0.0], 0).unwrap();
@@ -249,8 +287,10 @@ fn create_vector_index_backfills_existing_docs() {
 fn vector_index_refreshes_on_update() {
     let mut c = Collection::new("t");
     c.create_vector_index("embedding", 2);
-    c.insert(doc("a", &[("embedding", vec_of(&[1.0, 0.0]))])).unwrap();
-    c.insert(doc("b", &[("embedding", vec_of(&[0.0, 1.0]))])).unwrap();
+    c.insert(doc("a", &[("embedding", vec_of(&[1.0, 0.0]))]))
+        .unwrap();
+    c.insert(doc("b", &[("embedding", vec_of(&[0.0, 1.0]))]))
+        .unwrap();
 
     // Update a's embedding to point north: now b (north) should be the top.
     let upd = Value::Object(vec![(
@@ -277,12 +317,12 @@ fn vector_index_refreshes_on_update() {
 fn vector_index_removes_on_delete() {
     let mut c = Collection::new("t");
     c.create_vector_index("embedding", 2);
-    c.insert(doc("a", &[("embedding", vec_of(&[1.0, 0.0]))])).unwrap();
-    c.insert(doc("b", &[("embedding", vec_of(&[0.0, 1.0]))])).unwrap();
+    c.insert(doc("a", &[("embedding", vec_of(&[1.0, 0.0]))]))
+        .unwrap();
+    c.insert(doc("b", &[("embedding", vec_of(&[0.0, 1.0]))]))
+        .unwrap();
 
-    assert!(c.delete_one(Value::Object(vec![
-        ("_id".to_string(), Value::str("a"))
-    ])));
+    assert!(c.delete_one(Value::Object(vec![("_id".to_string(), Value::str("a"))])));
 
     let hits = c.vector_search("embedding", &[1.0, 0.0], 0).unwrap();
     assert_eq!(hits.len(), 1, "only b remains indexed");
@@ -293,7 +333,8 @@ fn vector_index_removes_on_delete() {
 fn vector_index_updates_on_replace() {
     let mut c = Collection::new("t");
     c.create_vector_index("embedding", 2);
-    c.insert(doc("a", &[("embedding", vec_of(&[1.0, 0.0]))])).unwrap();
+    c.insert(doc("a", &[("embedding", vec_of(&[1.0, 0.0]))]))
+        .unwrap();
     // Replace a wholesale, pointing its vector north.
     c.replace_one(
         Value::Object(vec![("_id".to_string(), Value::str("a"))]),
@@ -309,7 +350,8 @@ fn vector_index_updates_on_replace() {
 fn update_to_wrong_dimension_is_an_error_and_untouched() {
     let mut c = Collection::new("t");
     c.create_vector_index("embedding", 3);
-    c.insert(doc("a", &[("embedding", vec_of(&[1.0, 0.0, 0.0]))])).unwrap();
+    c.insert(doc("a", &[("embedding", vec_of(&[1.0, 0.0, 0.0]))]))
+        .unwrap();
     // $set the embedding to a 2-element vector -> InvalidUpdate? No: it is a
     // VectorDimMismatch from set_doc's vector check.
     let upd = Value::Object(vec![(
@@ -320,7 +362,10 @@ fn update_to_wrong_dimension_is_an_error_and_untouched() {
         Value::Object(vec![("_id".to_string(), Value::str("a"))]),
         upd,
     );
-    assert!(matches!(r, Err(StoreError::VectorDimMismatch { .. })), "got {r:?}");
+    assert!(
+        matches!(r, Err(StoreError::VectorDimMismatch { .. })),
+        "got {r:?}"
+    );
     // store untouched: the original 3-dim vector is still there.
     let hits = c.vector_search("embedding", &[1.0, 0.0, 0.0], 1).unwrap();
     assert!((hits[0].1 - 1.0).abs() < 1e-4);

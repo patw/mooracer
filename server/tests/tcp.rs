@@ -23,7 +23,12 @@ use wire::{Command, Status, WIRE_VERSION};
 
 /// Build an engine `Value` object from ordered `(key, value)` pairs.
 fn obj(pairs: &[(&str, Value)]) -> Value {
-    Value::Object(pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect())
+    Value::Object(
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect(),
+    )
 }
 
 /// Encode an engine [`Value`] as a wire `Value` (for building request payloads).
@@ -31,25 +36,44 @@ fn enc<'a>(b: &mut FlatBufferBuilder<'a>, v: &Value) -> WIPOffset<wire::Value<'a
     match v {
         Value::Null => wire::Value::create(
             b,
-            &wire::ValueArgs { kind: wire::ValueKind::Null, ..Default::default() },
+            &wire::ValueArgs {
+                kind: wire::ValueKind::Null,
+                ..Default::default()
+            },
         ),
         Value::Bool(x) => wire::Value::create(
             b,
-            &wire::ValueArgs { kind: wire::ValueKind::Bool, b: *x, ..Default::default() },
+            &wire::ValueArgs {
+                kind: wire::ValueKind::Bool,
+                b: *x,
+                ..Default::default()
+            },
         ),
         Value::I64(x) => wire::Value::create(
             b,
-            &wire::ValueArgs { kind: wire::ValueKind::I64, i: *x, ..Default::default() },
+            &wire::ValueArgs {
+                kind: wire::ValueKind::I64,
+                i: *x,
+                ..Default::default()
+            },
         ),
         Value::F64(x) => wire::Value::create(
             b,
-            &wire::ValueArgs { kind: wire::ValueKind::F64, f: *x, ..Default::default() },
+            &wire::ValueArgs {
+                kind: wire::ValueKind::F64,
+                f: *x,
+                ..Default::default()
+            },
         ),
         Value::Str(s) => {
             let s = b.create_string(s);
             wire::Value::create(
                 b,
-                &wire::ValueArgs { kind: wire::ValueKind::Str, s: Some(s), ..Default::default() },
+                &wire::ValueArgs {
+                    kind: wire::ValueKind::Str,
+                    s: Some(s),
+                    ..Default::default()
+                },
             )
         }
         Value::Array(items) => {
@@ -57,7 +81,11 @@ fn enc<'a>(b: &mut FlatBufferBuilder<'a>, v: &Value) -> WIPOffset<wire::Value<'a
             let arr = b.create_vector(&offs);
             wire::Value::create(
                 b,
-                &wire::ValueArgs { kind: wire::ValueKind::Array, arr: Some(arr), ..Default::default() },
+                &wire::ValueArgs {
+                    kind: wire::ValueKind::Array,
+                    arr: Some(arr),
+                    ..Default::default()
+                },
             )
         }
         Value::Object(pairs) => {
@@ -112,12 +140,7 @@ fn doc_id(d: wire::Value) -> String {
 /// Build a length-prefixed request frame. `f` builds the command payload on
 /// the builder and returns the union discriminant + offset (`None` offset for
 /// the empty `Command::NONE`).
-fn request_frame<F>(
-    coll: &str,
-    req_id: u64,
-    version: u64,
-    f: F,
-) -> Vec<u8>
+fn request_frame<F>(coll: &str, req_id: u64, version: u64, f: F) -> Vec<u8>
 where
     F: FnOnce(&mut FlatBufferBuilder) -> (Command, Option<WIPOffset<UnionWIPOffset>>),
 {
@@ -132,7 +155,6 @@ where
             collection: Some(coll_off),
             command_type,
             command,
-            ..Default::default()
         },
     );
     b.finish(req, Some(wire::FILE_IDENTIFIER));
@@ -149,7 +171,10 @@ struct Client<T> {
 
 impl<T: Read + Write> Client<T> {
     fn new(stream: T) -> Self {
-        Client { s: stream, buf: Vec::new() }
+        Client {
+            s: stream,
+            buf: Vec::new(),
+        }
     }
 
     fn send(&mut self, frame: &[u8]) -> std::io::Result<()> {
@@ -236,9 +261,18 @@ fn raw_roundtrip_insert_then_find_then_count_on_one_connection() {
 
     // 1) Insert three docs in a single batch.
     let frame = request_frame("cows", 1, WIRE_VERSION, |b| {
-        let d1 = enc(b, &obj(&[("_id", Value::Str("a".into())), ("age", Value::I64(3))]));
-        let d2 = enc(b, &obj(&[("_id", Value::Str("b".into())), ("age", Value::I64(5))]));
-        let d3 = enc(b, &obj(&[("_id", Value::Str("c".into())), ("age", Value::I64(7))]));
+        let d1 = enc(
+            b,
+            &obj(&[("_id", Value::Str("a".into())), ("age", Value::I64(3))]),
+        );
+        let d2 = enc(
+            b,
+            &obj(&[("_id", Value::Str("b".into())), ("age", Value::I64(5))]),
+        );
+        let d3 = enc(
+            b,
+            &obj(&[("_id", Value::Str("c".into())), ("age", Value::I64(7))]),
+        );
         let docs = b.create_vector(&[d1, d2, d3]);
         let cmd = wire::InsertCmd::create(b, &wire::InsertCmdArgs { docs: Some(docs) });
         (Command::InsertCmd, Some(cmd.as_union_value()))
@@ -253,7 +287,13 @@ fn raw_roundtrip_insert_then_find_then_count_on_one_connection() {
     // 2) Find all on the same connection.
     let frame = request_frame("cows", 2, WIRE_VERSION, |b| {
         let f = enc(b, &Value::Object(vec![])); // {} = all
-        let cmd = wire::FindCmd::create(b, &wire::FindCmdArgs { filter: Some(f), ..Default::default() });
+        let cmd = wire::FindCmd::create(
+            b,
+            &wire::FindCmdArgs {
+                filter: Some(f),
+                ..Default::default()
+            },
+        );
         (Command::FindCmd, Some(cmd.as_union_value()))
     });
     c.send(&frame).unwrap();
@@ -282,9 +322,9 @@ fn find_reserves_pipeline_order_and_one_flag() {
         .seed_docs(
             "cows",
             &[
-                obj(&[("_id", Value::Str("a".into())), ("age", Value::I64(1))] ),
-                obj(&[("_id", Value::Str("b".into())), ("age", Value::I64(3))] ),
-                obj(&[("_id", Value::Str("c".into())), ("age", Value::I64(2))] ),
+                obj(&[("_id", Value::Str("a".into())), ("age", Value::I64(1))]),
+                obj(&[("_id", Value::Str("b".into())), ("age", Value::I64(3))]),
+                obj(&[("_id", Value::Str("c".into())), ("age", Value::I64(2))]),
             ],
         )
         .unwrap();
@@ -312,7 +352,10 @@ fn find_reserves_pipeline_order_and_one_flag() {
     let resp = c.recv().unwrap();
     let docs = resp.body_as_find_res().unwrap().docs().unwrap();
     let order: Vec<String> = docs.iter().map(|d| doc_id(d)).collect();
-    assert_eq!(order, vec!["a".to_string(), "c".to_string(), "b".to_string()]);
+    assert_eq!(
+        order,
+        vec!["a".to_string(), "c".to_string(), "b".to_string()]
+    );
 
     // Sort descending + limit 2: b(3), c(2).
     let frame = request_frame("cows", 2, WIRE_VERSION, |b| {
@@ -355,14 +398,19 @@ fn find_reserves_pipeline_order_and_one_flag() {
     let resp = c.recv().unwrap();
     let docs = resp.body_as_find_res().unwrap().docs().unwrap();
     assert_eq!(docs.len(), 1);
-    assert_eq!(dec(&docs.get(0)).get("_id").unwrap(), &Value::Str("a".into()));
+    assert_eq!(
+        dec(&docs.get(0)).get("_id").unwrap(),
+        &Value::Str("a".into())
+    );
 }
 
 #[test]
 fn typed_error_duplicate_id_over_wire() {
     let (server, listener) = mooracer_server::Server::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
-    server.seed_docs("c", &[obj(&[("_id", Value::Str("1".into()))])]).unwrap();
+    server
+        .seed_docs("c", &[obj(&[("_id", Value::Str("1".into()))])])
+        .unwrap();
     thread::spawn(move || {
         let _ = server.run(&listener);
     });
@@ -377,7 +425,11 @@ fn typed_error_duplicate_id_over_wire() {
     });
     c.send(&frame).unwrap();
     let resp = c.recv().unwrap();
-    assert!(resp.status() == Status::DuplicateId, "status: {:?}", resp.status());
+    assert!(
+        resp.status() == Status::DuplicateId,
+        "status: {:?}",
+        resp.status()
+    );
     assert!(resp.message().is_some() && !resp.message().unwrap().is_empty());
     assert!(resp.body().is_none(), "error responses carry no body");
 }
@@ -392,13 +444,21 @@ fn typed_error_update_no_match() {
         let u = enc(b, &obj(&[("$set", obj(&[("x", Value::I64(1))]))]));
         let cmd = wire::UpdateCmd::create(
             b,
-            &wire::UpdateCmdArgs { filter: Some(f), update: Some(u), many: false },
+            &wire::UpdateCmdArgs {
+                filter: Some(f),
+                update: Some(u),
+                many: false,
+            },
         );
         (Command::UpdateCmd, Some(cmd.as_union_value()))
     });
     c.send(&frame).unwrap();
     let resp = c.recv().unwrap();
-    assert!(resp.status() == Status::NoMatch, "status: {:?}", resp.status());
+    assert!(
+        resp.status() == Status::NoMatch,
+        "status: {:?}",
+        resp.status()
+    );
 
     // The same update with `many = true` succeeds with count 0.
     let frame = request_frame("empty", 2, WIRE_VERSION, |b| {
@@ -406,7 +466,11 @@ fn typed_error_update_no_match() {
         let u = enc(b, &obj(&[("$set", obj(&[("x", Value::I64(1))]))]));
         let cmd = wire::UpdateCmd::create(
             b,
-            &wire::UpdateCmdArgs { filter: Some(f), update: Some(u), many: true },
+            &wire::UpdateCmdArgs {
+                filter: Some(f),
+                update: Some(u),
+                many: true,
+            },
         );
         (Command::UpdateCmd, Some(cmd.as_union_value()))
     });
@@ -427,7 +491,11 @@ fn unknown_command_returns_unknown() {
     });
     c.send(&frame).unwrap();
     let resp = c.recv().unwrap();
-    assert!(resp.status() == Status::UnknownCommand, "status: {:?}", resp.status());
+    assert!(
+        resp.status() == Status::UnknownCommand,
+        "status: {:?}",
+        resp.status()
+    );
 }
 
 #[test]
@@ -441,7 +509,11 @@ fn unsupported_version() {
     c.send(&frame).unwrap();
     let resp = c.recv().unwrap();
     assert_eq!(resp.req_id(), 5);
-    assert!(resp.status() == Status::UnsupportedVersion, "status: {:?}", resp.status());
+    assert!(
+        resp.status() == Status::UnsupportedVersion,
+        "status: {:?}",
+        resp.status()
+    );
 }
 
 #[test]
@@ -451,7 +523,11 @@ fn malformed_frame_returns_malformed_request() {
     // A frame whose payload is not a valid "MOOR" FlatBuffer request.
     c.send_payload(b"definitely not a mooracer frame").unwrap();
     let resp = c.recv().unwrap();
-    assert!(resp.status() == Status::MalformedRequest, "status: {:?}", resp.status());
+    assert!(
+        resp.status() == Status::MalformedRequest,
+        "status: {:?}",
+        resp.status()
+    );
 }
 
 #[test]
@@ -462,10 +538,14 @@ fn search_over_wire_returns_hits_when_indexed() {
         .seed_docs(
             "vec",
             &[
-                obj(&[("_id", Value::Str("p".into())),
-                      ("emb", Value::Array(vec![Value::I64(1), Value::I64(0)]))]),
-                obj(&[("_id", Value::Str("q".into())),
-                      ("emb", Value::Array(vec![Value::I64(0), Value::I64(1)]))]),
+                obj(&[
+                    ("_id", Value::Str("p".into())),
+                    ("emb", Value::Array(vec![Value::I64(1), Value::I64(0)])),
+                ]),
+                obj(&[
+                    ("_id", Value::Str("q".into())),
+                    ("emb", Value::Array(vec![Value::I64(0), Value::I64(1)])),
+                ]),
             ],
         )
         .unwrap();
@@ -487,7 +567,11 @@ fn search_over_wire_returns_hits_when_indexed() {
         let q = b.create_vector(&[1.0f32, 0.0]);
         let cmd = wire::VectorSearchCmd::create(
             b,
-            &wire::VectorSearchCmdArgs { field: Some(field), query: Some(q), limit: 0 },
+            &wire::VectorSearchCmdArgs {
+                field: Some(field),
+                query: Some(q),
+                limit: 0,
+            },
         );
         (Command::VectorSearchCmd, Some(cmd.as_union_value()))
     });
@@ -496,9 +580,168 @@ fn search_over_wire_returns_hits_when_indexed() {
     assert!(resp.status() == Status::OK, "status: {:?}", resp.status());
     let hits = resp.body_as_search_res().unwrap().hits().unwrap();
     assert_eq!(hits.len(), 2);
-    let top = dec(&hits.get(0).doc().as_ref().unwrap());
+    let top = dec(hits.get(0).doc().as_ref().unwrap());
     assert_eq!(top.get("_id").unwrap(), &Value::Str("p".into()));
     assert!((hits.get(0).score() - 1.0).abs() < 1e-5);
+}
+
+#[test]
+fn index_management_over_wire() {
+    let addr = start_server();
+    let mut c = connect(addr);
+
+    // Insert two docs with a vector (dim 2) and a text field. The collection
+    // is created on insert; indexes are created *over the wire* below.
+    let frame = request_frame("ix", 1, WIRE_VERSION, |b| {
+        let d1 = obj(&[
+            ("_id", Value::Str("a".into())),
+            ("kind", Value::Str("cow".into())),
+            ("emb", Value::Array(vec![Value::I64(1), Value::I64(0)])),
+            ("body", Value::Str("mooing cow".into())),
+        ]);
+        let d2 = obj(&[
+            ("_id", Value::Str("b".into())),
+            ("kind", Value::Str("pig".into())),
+            ("emb", Value::Array(vec![Value::I64(0), Value::I64(1)])),
+            ("body", Value::Str("snorting pig".into())),
+        ]);
+        let v1 = enc(b, &d1);
+        let v2 = enc(b, &d2);
+        let docs = b.create_vector(&[v1, v2]);
+        let cmd = wire::InsertCmd::create(b, &wire::InsertCmdArgs { docs: Some(docs) });
+        (Command::InsertCmd, Some(cmd.as_union_value()))
+    });
+    c.send(&frame).unwrap();
+    assert!(c.recv().unwrap().status() == Status::OK);
+
+    // Create value + vector + text indexes via IndexCmd (no server seeding).
+    for (kind, field, dim) in [
+        (wire::IndexKind::CreateValue, "kind", 0),
+        (wire::IndexKind::CreateVector, "emb", 2),
+        (wire::IndexKind::CreateText, "body", 0),
+    ] {
+        let frame = request_frame("ix", 7, WIRE_VERSION, |b| {
+            let f = b.create_string(field);
+            let cmd = wire::IndexCmd::create(
+                b,
+                &wire::IndexCmdArgs {
+                    kind,
+                    field: Some(f),
+                    dim,
+                },
+            );
+            (Command::IndexCmd, Some(cmd.as_union_value()))
+        });
+        c.send(&frame).unwrap();
+        let resp = c.recv().unwrap();
+        assert!(resp.status() == Status::OK, "index {:?} on {field}", kind.0);
+        assert!(resp.body_as_index_res().is_some());
+    }
+
+    // Vector search now works (it was NoIndex before the IndexCmd).
+    let frame = request_frame("ix", 8, WIRE_VERSION, |b| {
+        let field = b.create_string("emb");
+        let q = b.create_vector(&[1.0f32, 0.0]);
+        let cmd = wire::VectorSearchCmd::create(
+            b,
+            &wire::VectorSearchCmdArgs {
+                field: Some(field),
+                query: Some(q),
+                limit: 0,
+            },
+        );
+        (Command::VectorSearchCmd, Some(cmd.as_union_value()))
+    });
+    c.send(&frame).unwrap();
+    let resp = c.recv().unwrap();
+    assert!(resp.status() == Status::OK);
+    let hits = resp.body_as_search_res().unwrap().hits().unwrap();
+    assert_eq!(hits.len(), 2);
+    assert_eq!(
+        dec(hits.get(0).doc().as_ref().unwrap()).get("_id").unwrap(),
+        &Value::Str("a".into())
+    );
+
+    // Text search also works.
+    let frame = request_frame("ix", 9, WIRE_VERSION, |b| {
+        let field = b.create_string("body");
+        let q = b.create_string("cow");
+        let cmd = wire::TextSearchCmd::create(
+            b,
+            &wire::TextSearchCmdArgs {
+                field: Some(field),
+                query: Some(q),
+                limit: 0,
+            },
+        );
+        (Command::TextSearchCmd, Some(cmd.as_union_value()))
+    });
+    c.send(&frame).unwrap();
+    assert!(c.recv().unwrap().status() == Status::OK);
+
+    // Dropping the primary `_id` index is an error.
+    let frame = request_frame("ix", 10, WIRE_VERSION, |b| {
+        let f = b.create_string("_id");
+        let cmd = wire::IndexCmd::create(
+            b,
+            &wire::IndexCmdArgs {
+                kind: wire::IndexKind::DropValue,
+                field: Some(f),
+                dim: 0,
+            },
+        );
+        (Command::IndexCmd, Some(cmd.as_union_value()))
+    });
+    c.send(&frame).unwrap();
+    assert!(c.recv().unwrap().status() == Status::PrimaryIndex);
+
+    // Dropping a nonexistent field index is NoIndex.
+    let frame = request_frame("ix", 11, WIRE_VERSION, |b| {
+        let f = b.create_string("nope");
+        let cmd = wire::IndexCmd::create(
+            b,
+            &wire::IndexCmdArgs {
+                kind: wire::IndexKind::DropValue,
+                field: Some(f),
+                dim: 0,
+            },
+        );
+        (Command::IndexCmd, Some(cmd.as_union_value()))
+    });
+    c.send(&frame).unwrap();
+    assert!(c.recv().unwrap().status() == Status::NoIndex);
+
+    // Dropping the vector index makes search return NoIndex again.
+    let frame = request_frame("ix", 12, WIRE_VERSION, |b| {
+        let f = b.create_string("emb");
+        let cmd = wire::IndexCmd::create(
+            b,
+            &wire::IndexCmdArgs {
+                kind: wire::IndexKind::DropVector,
+                field: Some(f),
+                dim: 0,
+            },
+        );
+        (Command::IndexCmd, Some(cmd.as_union_value()))
+    });
+    c.send(&frame).unwrap();
+    assert!(c.recv().unwrap().status() == Status::OK);
+
+    let frame = request_frame("ix", 13, WIRE_VERSION, |b| {
+        let field = b.create_string("emb");
+        let q = b.create_vector(&[1.0f32, 0.0]);
+        let cmd = wire::VectorSearchCmd::create(
+            b,
+            &wire::VectorSearchCmdArgs {
+                field: Some(field),
+                query: Some(q),
+                limit: 5,
+            },
+        );
+        (Command::VectorSearchCmd, Some(cmd.as_union_value()))
+    });
+    c.send(&frame).unwrap();
+    assert!(c.recv().unwrap().status() == Status::NoIndex);
 }
 
 #[test]
@@ -511,13 +754,21 @@ fn search_without_index_returns_no_index() {
         let q = b.create_vector(&[1.0f32, 0.0]);
         let cmd = wire::VectorSearchCmd::create(
             b,
-            &wire::VectorSearchCmdArgs { field: Some(field), query: Some(q), limit: 5 },
+            &wire::VectorSearchCmdArgs {
+                field: Some(field),
+                query: Some(q),
+                limit: 5,
+            },
         );
         (Command::VectorSearchCmd, Some(cmd.as_union_value()))
     });
     c.send(&frame).unwrap();
     let resp = c.recv().unwrap();
-    assert!(resp.status() == Status::NoIndex, "status: {:?}", resp.status());
+    assert!(
+        resp.status() == Status::NoIndex,
+        "status: {:?}",
+        resp.status()
+    );
 }
 
 #[test]
@@ -528,9 +779,21 @@ fn group_over_wire() {
         .seed_docs(
             "g",
             &[
-                obj(&[("_id", Value::Str("a".into())), ("k", Value::Str("x".into())), ("v", Value::I64(1))]),
-                obj(&[("_id", Value::Str("b".into())), ("k", Value::Str("x".into())), ("v", Value::I64(2))]),
-                obj(&[("_id", Value::Str("c".into())), ("k", Value::Str("y".into())), ("v", Value::I64(10))]),
+                obj(&[
+                    ("_id", Value::Str("a".into())),
+                    ("k", Value::Str("x".into())),
+                    ("v", Value::I64(1)),
+                ]),
+                obj(&[
+                    ("_id", Value::Str("b".into())),
+                    ("k", Value::Str("x".into())),
+                    ("v", Value::I64(2)),
+                ]),
+                obj(&[
+                    ("_id", Value::Str("c".into())),
+                    ("k", Value::Str("y".into())),
+                    ("v", Value::I64(10)),
+                ]),
             ],
         )
         .unwrap();
@@ -580,7 +843,6 @@ fn thread_pool_serves_many_concurrent_connections() {
     let n = 8usize;
     let mut handles = Vec::new();
     for t in 0..n {
-        let addr = addr;
         handles.push(thread::spawn(move || {
             let mut c = connect(addr);
             let id = format!("t{t}");
@@ -592,7 +854,11 @@ fn thread_pool_serves_many_concurrent_connections() {
             });
             c.send(&frame).unwrap();
             let resp = c.recv().unwrap();
-            assert!(resp.status() == Status::OK, "thread {t}: {:?}", resp.status());
+            assert!(
+                resp.status() == Status::OK,
+                "thread {t}: {:?}",
+                resp.status()
+            );
             assert_eq!(resp.body_as_insert_res().unwrap().ids().unwrap().len(), 1);
         }));
     }
@@ -633,8 +899,17 @@ fn delete_and_replace_over_wire() {
     // replace_one: match a, replace wholesale.
     let frame = request_frame("d", 1, WIRE_VERSION, |b| {
         let f = enc(b, &obj(&[("_id", Value::Str("a".into()))]));
-        let nd = enc(b, &obj(&[("_id", Value::Str("a".into())), ("v", Value::I64(99))]));
-        let cmd = wire::ReplaceCmd::create(b, &wire::ReplaceCmdArgs { filter: Some(f), new_doc: Some(nd) });
+        let nd = enc(
+            b,
+            &obj(&[("_id", Value::Str("a".into())), ("v", Value::I64(99))]),
+        );
+        let cmd = wire::ReplaceCmd::create(
+            b,
+            &wire::ReplaceCmdArgs {
+                filter: Some(f),
+                new_doc: Some(nd),
+            },
+        );
         (Command::ReplaceCmd, Some(cmd.as_union_value()))
     });
     c.send(&frame).unwrap();
@@ -645,7 +920,13 @@ fn delete_and_replace_over_wire() {
     // delete_many with empty filter → removes all 3.
     let frame = request_frame("d", 2, WIRE_VERSION, |b| {
         let f = enc(b, &Value::Object(vec![]));
-        let cmd = wire::DeleteCmd::create(b, &wire::DeleteCmdArgs { filter: Some(f), many: true });
+        let cmd = wire::DeleteCmd::create(
+            b,
+            &wire::DeleteCmdArgs {
+                filter: Some(f),
+                many: true,
+            },
+        );
         (Command::DeleteCmd, Some(cmd.as_union_value()))
     });
     c.send(&frame).unwrap();
@@ -663,7 +944,6 @@ fn delete_and_replace_over_wire() {
     let resp = c.recv().unwrap();
     assert_eq!(resp.body_as_count_res().unwrap().count(), 0);
 }
-
 
 #[test]
 fn exists_over_wire_matches_and_no_match() {
@@ -724,8 +1004,14 @@ fn text_search_over_wire_returns_hits_when_indexed() {
         .seed_docs(
             "docs",
             &[
-                obj(&[("_id", Value::Str("moo".into())), ("text", Value::Str("the quick brown cow moo moo".into()))]),
-                obj(&[("_id", Value::Str("milk".into())), ("text", Value::Str("the cold milk of the night".into()))]),
+                obj(&[
+                    ("_id", Value::Str("moo".into())),
+                    ("text", Value::Str("the quick brown cow moo moo".into())),
+                ]),
+                obj(&[
+                    ("_id", Value::Str("milk".into())),
+                    ("text", Value::Str("the cold milk of the night".into())),
+                ]),
             ],
         )
         .unwrap();
@@ -747,7 +1033,11 @@ fn text_search_over_wire_returns_hits_when_indexed() {
         let q = b.create_string("moo");
         let cmd = wire::TextSearchCmd::create(
             b,
-            &wire::TextSearchCmdArgs { field: Some(field), query: Some(q), limit: 0 },
+            &wire::TextSearchCmdArgs {
+                field: Some(field),
+                query: Some(q),
+                limit: 0,
+            },
         );
         (Command::TextSearchCmd, Some(cmd.as_union_value()))
     });
@@ -755,8 +1045,8 @@ fn text_search_over_wire_returns_hits_when_indexed() {
     let resp = c.recv().unwrap();
     assert!(resp.status() == Status::OK, "status: {:?}", resp.status());
     let hits = resp.body_as_search_res().unwrap().hits().unwrap();
-    assert!(hits.len() >= 1);
-    let top = dec(&hits.get(0).doc().as_ref().unwrap());
+    assert!(!hits.is_empty());
+    let top = dec(hits.get(0).doc().as_ref().unwrap());
     assert_eq!(top.get("_id").unwrap(), &Value::Str("moo".into()));
     assert!(hits.get(0).score() > 0.0);
 }
@@ -770,13 +1060,21 @@ fn text_search_without_index_returns_no_index() {
         let q = b.create_string("moo");
         let cmd = wire::TextSearchCmd::create(
             b,
-            &wire::TextSearchCmdArgs { field: Some(field), query: Some(q), limit: 5 },
+            &wire::TextSearchCmdArgs {
+                field: Some(field),
+                query: Some(q),
+                limit: 5,
+            },
         );
         (Command::TextSearchCmd, Some(cmd.as_union_value()))
     });
     c.send(&frame).unwrap();
     let resp = c.recv().unwrap();
-    assert!(resp.status() == Status::NoIndex, "status: {:?}", resp.status());
+    assert!(
+        resp.status() == Status::NoIndex,
+        "status: {:?}",
+        resp.status()
+    );
 }
 
 #[test]
@@ -787,12 +1085,16 @@ fn hybrid_search_over_wire_returns_hits_when_both_indexed() {
         .seed_docs(
             "h",
             &[
-                obj(&[("_id", Value::Str("moo".into())),
-                      ("text", Value::Str("brown cow moo".into())),
-                      ("emb", Value::Array(vec![Value::I64(1), Value::I64(0)]))]),
-                obj(&[("_id", Value::Str("milk".into())),
-                      ("text", Value::Str("cold milk night".into())),
-                      ("emb", Value::Array(vec![Value::I64(0), Value::I64(1)]))]),
+                obj(&[
+                    ("_id", Value::Str("moo".into())),
+                    ("text", Value::Str("brown cow moo".into())),
+                    ("emb", Value::Array(vec![Value::I64(1), Value::I64(0)])),
+                ]),
+                obj(&[
+                    ("_id", Value::Str("milk".into())),
+                    ("text", Value::Str("cold milk night".into())),
+                    ("emb", Value::Array(vec![Value::I64(0), Value::I64(1)])),
+                ]),
             ],
         )
         .unwrap();
@@ -830,7 +1132,7 @@ fn hybrid_search_over_wire_returns_hits_when_both_indexed() {
     assert!(resp.status() == Status::OK, "status: {:?}", resp.status());
     let hits = resp.body_as_search_res().unwrap().hits().unwrap();
     assert_eq!(hits.len(), 2);
-    let top = dec(&hits.get(0).doc().as_ref().unwrap());
+    let top = dec(hits.get(0).doc().as_ref().unwrap());
     assert_eq!(top.get("_id").unwrap(), &Value::Str("moo".into()));
     assert!(hits.get(0).score() > 0.0);
 }
@@ -843,8 +1145,10 @@ fn hybrid_search_missing_one_index_returns_no_index() {
     server
         .seed_docs(
             "h",
-            &[obj(&[("_id", Value::Str("a".into())),
-                    ("emb", Value::Array(vec![Value::I64(1), Value::I64(0)]))])],
+            &[obj(&[
+                ("_id", Value::Str("a".into())),
+                ("emb", Value::Array(vec![Value::I64(1), Value::I64(0)])),
+            ])],
         )
         .unwrap();
     server
@@ -877,5 +1181,9 @@ fn hybrid_search_missing_one_index_returns_no_index() {
     });
     c.send(&frame).unwrap();
     let resp = c.recv().unwrap();
-    assert!(resp.status() == Status::NoIndex, "status: {:?}", resp.status());
+    assert!(
+        resp.status() == Status::NoIndex,
+        "status: {:?}",
+        resp.status()
+    );
 }

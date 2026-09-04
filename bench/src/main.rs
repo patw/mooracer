@@ -35,11 +35,52 @@ const DIM: usize = 64;
 /// Text-corpus word bank: big enough for a stable BM25 idf, small enough to
 /// stay cheap to build.
 const WORDS: &[&str] = &[
-    "moo", "cow", "herd", "pasture", "barn", "field", "meadow", "triumph", "velvet", "copper",
-    "harvest", "orchard", "garden", "winter", "spring", "summer", "autumn", "ember", "frost",
-    "thunder", "lightning", "rainbow", "starlight", "moonbeam", "daybreak", "dusk", "dawn",
-    "horizon", "summit", "valley", "river", "canyon", "desert", "forest", "grove", "mangrove",
-    "redwood", "cedar", "birch", "willow", "oak", "maple", "spruce", "pine", "larch", "alder",
+    "moo",
+    "cow",
+    "herd",
+    "pasture",
+    "barn",
+    "field",
+    "meadow",
+    "triumph",
+    "velvet",
+    "copper",
+    "harvest",
+    "orchard",
+    "garden",
+    "winter",
+    "spring",
+    "summer",
+    "autumn",
+    "ember",
+    "frost",
+    "thunder",
+    "lightning",
+    "rainbow",
+    "starlight",
+    "moonbeam",
+    "daybreak",
+    "dusk",
+    "dawn",
+    "horizon",
+    "summit",
+    "valley",
+    "river",
+    "canyon",
+    "desert",
+    "forest",
+    "grove",
+    "mangrove",
+    "redwood",
+    "cedar",
+    "birch",
+    "willow",
+    "oak",
+    "maple",
+    "spruce",
+    "pine",
+    "larch",
+    "alder",
 ];
 /// The small `region` domain: gives `group` a handful of real groups and makes
 /// indexed-equality / `$and` / `$or` filters hit a realistic fraction.
@@ -64,7 +105,10 @@ fn make_doc(i: u64) -> Value {
         .map(|k| {
             Value::object_from(vec![
                 ("qty".to_string(), Value::i64(((i + k) % 50) as i64)),
-                ("w".to_string(), Value::str(REGIONS[((i + k) as usize) % REGIONS.len()])),
+                (
+                    "w".to_string(),
+                    Value::str(REGIONS[((i + k) as usize) % REGIONS.len()]),
+                ),
             ])
         })
         .collect();
@@ -181,7 +225,7 @@ fn op_count(size: usize) -> u64 {
     // `size`) so a run is a fixed, reproducible amount of work no matter how
     // large the corpus is — the corpus size scales the *per-op* cost, while
     // the op count stays bounded so `--size 100000` does not blow up runtime.
-    (size as u64).min(1_500).max(300)
+    (size as u64).clamp(300, 1_500)
 }
 
 /// Bounded corpus size for the *mutating* workloads (insert / insert_many /
@@ -199,7 +243,7 @@ fn run_all(size: usize) -> Vec<Bench> {
     let wsize = write_corpus(size);
     // Delete is O(corpus) per op (index deindex memmoves), so keep its
     // scratch corpus small and independent of `size`.
-    let del_size = size.min(4_000).max(500);
+    let del_size = size.clamp(500, 4_000);
     let mut out: Vec<Bench> = Vec::with_capacity(16);
 
     // --- insert (one doc at a time, throwaway collection) -----------------
@@ -277,8 +321,17 @@ fn run_all(size: usize) -> Vec<Bench> {
         let id = format!("{i:024}");
         let f = Value::object_from(vec![("_id".to_string(), Value::str(id))]);
         let u = Value::object_from(vec![
-            ("$set".to_string(), Value::object_from(vec![("region".to_string(), Value::str(REGIONS[(i % REGIONS.len() as u64) as usize].to_string()))])),
-            ("$inc".to_string(), Value::object_from(vec![("age".to_string(), Value::i64(1))])),
+            (
+                "$set".to_string(),
+                Value::object_from(vec![(
+                    "region".to_string(),
+                    Value::str(REGIONS[(i % REGIONS.len() as u64) as usize].to_string()),
+                )]),
+            ),
+            (
+                "$inc".to_string(),
+                Value::object_from(vec![("age".to_string(), Value::i64(1))]),
+            ),
         ]);
         upd.update_one(f, u).unwrap() as u64
     }));
@@ -308,16 +361,28 @@ fn run_all(size: usize) -> Vec<Bench> {
         let and_f = Value::object_from(vec![(
             "$and".to_string(),
             Value::array_from(vec![
-                Value::object_from(vec![("region".to_string(), Value::str(REGIONS[(i % REGIONS.len() as u64) as usize].to_string()))]),
-                Value::object_from(vec![("age".to_string(), Value::object_from(vec![("$gte".to_string(), Value::i64(100))]))]),
+                Value::object_from(vec![(
+                    "region".to_string(),
+                    Value::str(REGIONS[(i % REGIONS.len() as u64) as usize].to_string()),
+                )]),
+                Value::object_from(vec![(
+                    "age".to_string(),
+                    Value::object_from(vec![("$gte".to_string(), Value::i64(100))]),
+                )]),
             ]),
         )]);
         let a = col.find(and_f).count();
         let or_f = Value::object_from(vec![(
             "$or".to_string(),
             Value::array_from(vec![
-                Value::object_from(vec![("region".to_string(), Value::str("north".to_string()))]),
-                Value::object_from(vec![("region".to_string(), Value::str("south".to_string()))]),
+                Value::object_from(vec![(
+                    "region".to_string(),
+                    Value::str("north".to_string()),
+                )]),
+                Value::object_from(vec![(
+                    "region".to_string(),
+                    Value::str("south".to_string()),
+                )]),
             ]),
         )]);
         let b = col.find(or_f).count();
@@ -331,8 +396,14 @@ fn run_all(size: usize) -> Vec<Bench> {
             Value::object_from(vec![(
                 "$elemMatch".to_string(),
                 Value::object_from(vec![
-                    ("qty".to_string(), Value::object_from(vec![("$gte".to_string(), Value::i64(40))])),
-                    ("w".to_string(), Value::str(REGIONS[(i % REGIONS.len() as u64) as usize].to_string())),
+                    (
+                        "qty".to_string(),
+                        Value::object_from(vec![("$gte".to_string(), Value::i64(40))]),
+                    ),
+                    (
+                        "w".to_string(),
+                        Value::str(REGIONS[(i % REGIONS.len() as u64) as usize].to_string()),
+                    ),
                 ]),
             )]),
         )]);
@@ -343,7 +414,8 @@ fn run_all(size: usize) -> Vec<Bench> {
     out.push(bench("vector-search", iters, |i| {
         let q: Vec<f32> = (0..DIM)
             .map(|d| {
-                let t = (((i as u32).wrapping_mul(40503).wrapping_add(d as u32) >> 8) & 0xff) as f32;
+                let t =
+                    (((i as u32).wrapping_mul(40503).wrapping_add(d as u32) >> 8) & 0xff) as f32;
                 t / 127.5 - 1.0
             })
             .collect();
@@ -361,18 +433,24 @@ fn run_all(size: usize) -> Vec<Bench> {
     out.push(bench("hybrid-search", iters, |i| {
         let q: Vec<f32> = (0..DIM)
             .map(|d| {
-                let t = (((i as u32).wrapping_mul(69069).wrapping_add(d as u32) >> 8) & 0xff) as f32;
+                let t =
+                    (((i as u32).wrapping_mul(69069).wrapping_add(d as u32) >> 8) & 0xff) as f32;
                 t / 127.5 - 1.0
             })
             .collect();
-        let query = format!("{}", WORDS[(i as usize) % WORDS.len()]);
-        col.hybrid_search("body", "vec", &query, &q, 10).unwrap().len() as u64
+        let query = WORDS[(i as usize) % WORDS.len()].to_string();
+        col.hybrid_search("body", "vec", &query, &q, 10)
+            .unwrap()
+            .len() as u64
     }));
 
     // --- aggregation (group by region, sum score) -------------------------
     out.push(bench("group-agg", iters, |i| {
         let f = if i % 2 == 0 {
-            Value::object_from(vec![("region".to_string(), Value::str(REGIONS[(i % REGIONS.len() as u64) as usize].to_string()))])
+            Value::object_from(vec![(
+                "region".to_string(),
+                Value::str(REGIONS[(i % REGIONS.len() as u64) as usize].to_string()),
+            )])
         } else {
             Value::object()
         };
@@ -385,7 +463,9 @@ fn run_all(size: usize) -> Vec<Bench> {
 /// Render the benchmark table (also what `BENCH.md` is generated from).
 fn render(rows: &[Bench], size: usize) -> String {
     let mut s = String::new();
-    s.push_str(&format!("MooRacer benchmark — dataset size = {size} docs\n"));
+    s.push_str(&format!(
+        "MooRacer benchmark — dataset size = {size} docs\n"
+    ));
     s.push_str(&format!(
         "{:<20} {:>12} {:>12} {:>12} {:>12}\n",
         "workload", "ops", "ops/s", "p50 (µs)", "p99 (µs)"
@@ -395,7 +475,11 @@ fn render(rows: &[Bench], size: usize) -> String {
     for b in rows {
         s.push_str(&format!(
             "{:<20} {:>12} {:>12.0} {:>12.2} {:>12.2}\n",
-            b.name, b.ops, b.ops_per_sec(), b.p50, b.p99
+            b.name,
+            b.ops,
+            b.ops_per_sec(),
+            b.p50,
+            b.p99
         ));
     }
     s
@@ -410,10 +494,10 @@ fn report_md(rows: &[Bench], size: usize) -> String {
     s.push_str("# MooRacer benchmark\n\n");
     s.push_str("Raw throughput + latency report for the in-memory document engine.\n\n");
     s.push_str("## Methodology\n\n");
-    s.push_str(&format!(
+    s.push_str(
         "- **Build**: `--release` (`opt-level = 3`, `lto = \"fat\"`, `codegen-units = 1`, \
-         `-C target-cpu=native`). These are the shipped numbers.\n"
-    ));
+         `-C target-cpu=native`). These are the shipped numbers.\n",
+    );
     s.push_str(&format!(
         "- **Dataset**: {size} deterministic documents, each with scalars \
          (`age`, `score`, `region`, `name`), a text `body`, an `items` array of \
@@ -424,12 +508,12 @@ fn report_md(rows: &[Bench], size: usize) -> String {
         "- **Read workloads** sample a bounded number of operations (corpus size \
          scales the per-op cost, the op count stays fixed) so any run is a real, \
          reproducible amount of work; **mutating workloads** run on bounded \
-         scratch collections so they never corrupt the shared read fixture.\n"
+         scratch collections so they never corrupt the shared read fixture.\n",
     );
     s.push_str(
         "- **Measurement**: each operation is timed individually; `p50`/`p99` are \
          percentiles of the per-op latency distribution (µs), and `ops/s` is \
-         `ops / wall_time` over the whole workload.\n\n"
+         `ops / wall_time` over the whole workload.\n\n",
     );
     s.push_str(&format!("## Results — dataset size = {size} docs\n\n"));
     s.push_str("| workload | ops | ops/s | p50 (µs) | p99 (µs) |\n");
@@ -437,23 +521,27 @@ fn report_md(rows: &[Bench], size: usize) -> String {
     for b in rows {
         s.push_str(&format!(
             "| {} | {} | {:.0} | {:.2} | {:.2} |\n",
-            b.name, b.ops, b.ops_per_sec(), b.p50, b.p99
+            b.name,
+            b.ops,
+            b.ops_per_sec(),
+            b.p50,
+            b.p99
         ));
     }
     s.push_str("\n## Reading the numbers\n\n");
     s.push_str(
         "- **Fast (µs, index-/key-driven):** `indexed-equality`, `sort-limit`, \
          `update_one`, `delete` — index-driven point/range lookups and primary-key \
-         writes.\n"
+         writes.\n",
     );
     s.push_str(
         "- **Mid (hundreds of µs):** `range-find`, `text-search` (posting-list walk), \
-         `scan` (full scan). `insert` is ~1.4 µs/doc amortized.\n"
+         `scan` (full scan). `insert` is ~1.4 µs/doc amortized.\n",
     );
     s.push_str(
         "- **Slow (ms):** `logical-and-or`, `elemMatch`, `group-agg` (full scans), \
          `vector-search` (brute-force over the whole corpus), and `hybrid-search` \
-         (two full rankings per op) — the natural targets for further optimization.\n\n"
+         (two full rankings per op) — the natural targets for further optimization.\n\n",
     );
     s.push_str("## Regenerating\n\n");
     s.push_str("```sh\ncargo run --release --bin bench -- --write-md   # 20k docs\ncargo run --release --bin bench -- --size 250000 --write-md\ncargo run --release --bin bench -- --quick   # small, fast\n```\n\n");
@@ -479,13 +567,10 @@ fn parse_opts() -> Opts {
         match args[i].as_str() {
             "--size" => {
                 i += 1;
-                size = args
-                    .get(i)
-                    .and_then(|s| s.parse().ok())
-                    .unwrap_or_else(|| {
-                        eprintln!("error: --size expects a number");
-                        std::process::exit(2);
-                    });
+                size = args.get(i).and_then(|s| s.parse().ok()).unwrap_or_else(|| {
+                    eprintln!("error: --size expects a number");
+                    std::process::exit(2);
+                });
             }
             "--quick" => quick = true,
             "--write-md" => write_md = true,
@@ -547,10 +632,16 @@ mod tests {
         let a = make_doc(7);
         let b = make_doc(7);
         assert_eq!(a, b, "docs for the same index must be identical");
-        assert_eq!(a.get("_id").unwrap().as_str(), Some("000000000000000000000007"));
+        assert_eq!(
+            a.get("_id").unwrap().as_str(),
+            Some("000000000000000000000007")
+        );
         assert_eq!(a.get("age").unwrap().as_i64(), Some(7));
         assert!(matches!(a.get("score").unwrap(), Value::F64(_)));
-        assert_eq!(a.get("region").unwrap().as_str(), Some(REGIONS[7 % REGIONS.len()]));
+        assert_eq!(
+            a.get("region").unwrap().as_str(),
+            Some(REGIONS[7 % REGIONS.len()])
+        );
         // vec has the configured dimension and is all numeric.
         let vec = a.get("vec").unwrap().as_array().unwrap();
         assert_eq!(vec.len(), DIM);
@@ -566,7 +657,10 @@ mod tests {
         assert!(col.has_vector_index("vec"));
         assert!(col.has_text_index("body"));
         // Indexed equality actually finds the expected fraction.
-        let f = Value::object_from(vec![("region".to_string(), Value::str("north".to_string()))]);
+        let f = Value::object_from(vec![(
+            "region".to_string(),
+            Value::str("north".to_string()),
+        )]);
         let n = col.find(f).count();
         assert!(n > 0 && n < 1_000);
     }
@@ -606,9 +700,20 @@ mod tests {
         assert_eq!(rows.len(), 14, "all 14 workloads must be present");
         let names: Vec<&str> = rows.iter().map(|b| b.name).collect();
         for expected in [
-            "insert", "insert_many", "indexed-equality", "range-find", "scan", "sort-limit",
-            "update_one", "delete", "logical-and-or", "elemMatch", "vector-search",
-            "text-search", "hybrid-search", "group-agg",
+            "insert",
+            "insert_many",
+            "indexed-equality",
+            "range-find",
+            "scan",
+            "sort-limit",
+            "update_one",
+            "delete",
+            "logical-and-or",
+            "elemMatch",
+            "vector-search",
+            "text-search",
+            "hybrid-search",
+            "group-agg",
         ] {
             assert!(names.contains(&expected), "missing workload {expected}");
         }
@@ -643,11 +748,25 @@ mod tests {
         // The results table is real markdown and lists every workload.
         assert!(md.contains("| workload | ops | ops/s | p50 (µs) | p99 (µs) |"));
         for expected in [
-            "insert", "insert_many", "indexed-equality", "range-find", "scan", "sort-limit",
-            "update_one", "delete", "logical-and-or", "elemMatch", "vector-search",
-            "text-search", "hybrid-search", "group-agg",
+            "insert",
+            "insert_many",
+            "indexed-equality",
+            "range-find",
+            "scan",
+            "sort-limit",
+            "update_one",
+            "delete",
+            "logical-and-or",
+            "elemMatch",
+            "vector-search",
+            "text-search",
+            "hybrid-search",
+            "group-agg",
         ] {
-            assert!(md.contains(&format!("| {expected} |")), "report missing {expected}");
+            assert!(
+                md.contains(&format!("| {expected} |")),
+                "report missing {expected}"
+            );
         }
         // The dataset size is stamped into the results header.
         assert!(md.contains("dataset size = 500 docs"));

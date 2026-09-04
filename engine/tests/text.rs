@@ -51,9 +51,11 @@ fn text_search_ranks_by_bm25_best_first() {
     let mut c = Collection::new("t");
     c.create_text_index("body");
     // Doc with the rare term "moose" once (should rank high for it).
-    c.insert(doc("a", &[("body", s("the quick moose runs"))])).unwrap();
+    c.insert(doc("a", &[("body", s("the quick moose runs"))]))
+        .unwrap();
     // Doc with "moo" many times.
-    c.insert(doc("b", &[("body", s("moo moo moo moo"))])).unwrap();
+    c.insert(doc("b", &[("body", s("moo moo moo moo"))]))
+        .unwrap();
     // Doc with "moo" once plus filler.
     c.insert(doc("c", &[("body", s("moo and lots of other words here"))]))
         .unwrap();
@@ -78,11 +80,14 @@ fn text_search_ranks_by_bm25_best_first() {
 fn text_search_returns_the_full_document() {
     let mut c = Collection::new("t");
     c.create_text_index("body");
-    c.insert(doc("a", &[
-        ("body", s("moo the cow")),
-        ("name", s("daisy")),
-        ("count", Value::i64(7)),
-    ]))
+    c.insert(doc(
+        "a",
+        &[
+            ("body", s("moo the cow")),
+            ("name", s("daisy")),
+            ("count", Value::i64(7)),
+        ],
+    ))
     .unwrap();
     let hits = c.text_search("body", "cow", 1).unwrap();
     assert_eq!(hits.len(), 1);
@@ -99,8 +104,11 @@ fn text_search_limit_is_top_k_and_zero_means_all() {
     c.create_text_index("body");
     for i in 0..8 {
         // More "moo" in each successive doc.
-        let words = std::iter::repeat("moo").take(i + 1).collect::<Vec<_>>().join(" ");
-        c.insert(doc(&format!("d{i}"), &[("body", s(&words))])).unwrap();
+        let words = std::iter::repeat_n("moo", i + 1)
+            .collect::<Vec<_>>()
+            .join(" ");
+        c.insert(doc(&format!("d{i}"), &[("body", s(&words))]))
+            .unwrap();
     }
     assert_eq!(c.text_search("body", "moo", 3).unwrap().len(), 3);
     assert_eq!(c.text_search("body", "moo", 0).unwrap().len(), 8);
@@ -120,8 +128,10 @@ fn text_search_stems_the_query_at_search_time() {
     c.create_text_index("body");
     // Indexed docs store stemmed forms via text_tokens: "running" -> "run",
     // "skies" -> "ski".
-    c.insert(doc("runner", &[("body", s("the running race"))])).unwrap();
-    c.insert(doc("sky", &[("body", s("the bright skies"))])).unwrap();
+    c.insert(doc("runner", &[("body", s("the running race"))]))
+        .unwrap();
+    c.insert(doc("sky", &[("body", s("the bright skies"))]))
+        .unwrap();
 
     // A raw query "running" must hit the "run" doc via stemming.
     let hits = c.text_search("body", "running", 1).unwrap();
@@ -141,7 +151,8 @@ fn text_search_stems_the_query_at_search_time() {
 fn array_of_strings_field_is_indexed() {
     let mut c = Collection::new("t");
     c.create_text_index("tags");
-    c.insert(doc("a", &[("tags", sarr(&["moo", "cow"]))])).unwrap();
+    c.insert(doc("a", &[("tags", sarr(&["moo", "cow"]))]))
+        .unwrap();
     c.insert(doc("b", &[("tags", sarr(&["horse"]))])).unwrap();
     let hits = c.text_search("tags", "moo", 0).unwrap();
     assert_eq!(hits.len(), 1);
@@ -154,7 +165,8 @@ fn non_text_field_is_not_indexed_but_not_an_error() {
     c.create_text_index("body");
     // A numeric field is not a string / array of strings -> not indexed, but
     // the insert must succeed (a text index never rejects a write).
-    c.insert(doc("num", &[("body", Value::i64(12345))])).unwrap();
+    c.insert(doc("num", &[("body", Value::i64(12345))]))
+        .unwrap();
     c.insert(doc("str", &[("body", s("moo moo"))])).unwrap();
     assert_eq!(c.len(), 2, "the numeric doc was still inserted");
     let hits = c.text_search("body", "moo", 0).unwrap();
@@ -179,7 +191,8 @@ fn a_mixed_array_is_not_indexed() {
 fn create_text_index_backfills_existing_docs() {
     let mut c = Collection::new("t");
     c.insert(doc("a", &[("body", s("moo the first"))])).unwrap();
-    c.insert(doc("b", &[("body", s("cow the second"))])).unwrap();
+    c.insert(doc("b", &[("body", s("cow the second"))]))
+        .unwrap();
     c.create_text_index("body");
     let hits = c.text_search("body", "moo", 0).unwrap();
     assert_eq!(hits.len(), 1);
@@ -195,7 +208,10 @@ fn reindex_rebuilds_the_text_index_deterministically() {
     // Mutate a, then rebuild: results must be identical to incremental state.
     c.update_one(
         Value::Object(vec![("_id".to_string(), Value::str("a"))]),
-        Value::Object(vec![("$set".to_string(), Value::Object(vec![("body".to_string(), s("moo cow moo"))]))]),
+        Value::Object(vec![(
+            "$set".to_string(),
+            Value::Object(vec![("body".to_string(), s("moo cow moo"))]),
+        )]),
     )
     .unwrap();
     let before = c.text_search("body", "moo", 0).unwrap();
@@ -212,7 +228,11 @@ fn reindex_rebuilds_the_text_index_deterministically() {
             .collect::<Vec<_>>(),
         "reindex must be a deterministic no-op on the text index"
     );
-    assert_eq!(before.len(), 1, "only a's updated body ('moo cow moo') has 'moo'");
+    assert_eq!(
+        before.len(),
+        1,
+        "only a's updated body ('moo cow moo') has 'moo'"
+    );
 }
 
 // -- maintenance (update / delete / replace) -------------------------------
@@ -226,11 +246,17 @@ fn text_index_refreshes_on_update() {
     // Overwrite a's body so it no longer mentions "moo".
     c.update_one(
         Value::Object(vec![("_id".to_string(), Value::str("a"))]),
-        Value::Object(vec![("$set".to_string(), Value::Object(vec![("body".to_string(), s("just a horse"))]))]),
+        Value::Object(vec![(
+            "$set".to_string(),
+            Value::Object(vec![("body".to_string(), s("just a horse"))]),
+        )]),
     )
     .unwrap();
 
-    assert!(c.text_search("body", "moo", 0).unwrap().is_empty(), "moo posting removed");
+    assert!(
+        c.text_search("body", "moo", 0).unwrap().is_empty(),
+        "moo posting removed"
+    );
     let hits = c.text_search("body", "horse", 0).unwrap();
     assert_eq!(hits.len(), 1);
     assert_eq!(id_of(&hits[0].0), "a");
@@ -274,8 +300,11 @@ fn two_text_indexes_on_different_fields_are_independent() {
     let mut c = Collection::new("t");
     c.create_text_index("title");
     c.create_text_index("body");
-    c.insert(doc("a", &[("title", s("moo racing")), ("body", s("the quick cow"))]))
-        .unwrap();
+    c.insert(doc(
+        "a",
+        &[("title", s("moo racing")), ("body", s("the quick cow"))],
+    ))
+    .unwrap();
     assert_eq!(c.text_index_names(), vec!["body", "title"]);
     let h1 = c.text_search("title", "moo", 1).unwrap();
     let h2 = c.text_search("body", "cow", 1).unwrap();

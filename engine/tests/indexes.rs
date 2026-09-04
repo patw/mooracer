@@ -88,7 +88,11 @@ fn create_index_rebuilds_deterministically() {
     c.create_index("v").unwrap();
     let ix = c.index("v").unwrap();
     assert_eq!(ix.ids_range(Unbounded, Unbounded), vec!["a", "b"]);
-    assert_eq!(ix.ids_equal(&Value::i64(9)), vec!["b"], "rebuild reflects current docs");
+    assert_eq!(
+        ix.ids_equal(&Value::i64(9)),
+        vec!["b"],
+        "rebuild reflects current docs"
+    );
     assert_eq!(ix.len(), 2);
 }
 
@@ -97,7 +101,10 @@ fn drop_index_rules() {
     let mut c = Collection::new("t");
     c.insert(id_doc("d", &[("age", Value::i64(1))])).unwrap();
     assert_eq!(c.drop_index("_id"), Err(StoreError::PrimaryIndex));
-    assert_eq!(c.drop_index("nope"), Err(StoreError::NoIndex("nope".into())));
+    assert_eq!(
+        c.drop_index("nope"),
+        Err(StoreError::NoIndex("nope".into()))
+    );
     c.create_index("age").unwrap();
     c.create_index("name").unwrap();
     c.drop_index("age").unwrap();
@@ -125,7 +132,11 @@ fn insert_many_registers_batch_entries() {
         .insert_many([id_doc("m2", &[]), id_doc("fresh", &[])])
         .unwrap_err();
     assert_eq!(err, StoreError::DuplicateId("m2".into()));
-    assert_eq!(c.index("k").unwrap().len(), 3, "atomic batch: indexes untouched");
+    assert_eq!(
+        c.index("k").unwrap().len(),
+        3,
+        "atomic batch: indexes untouched"
+    );
 }
 
 // -- range scans ---------------------------------------------------------------
@@ -149,9 +160,18 @@ fn range_scan_over_collection_index() {
         ix.ids_range(Included(&Value::i64(25)), Excluded(&Value::i64(40))),
         vec!["b", "c", "d"]
     );
-    assert_eq!(ix.ids_range(Excluded(&Value::i64(0)), Unbounded), vec!["a", "b", "c", "d", "e", "f"]);
-    assert_eq!(ix.ids_range(Included(&Value::i64(50)), Unbounded), vec!["f"]);
-    assert!(ix.ids_range(Included(&Value::i64(41)), Included(&Value::i64(54))).is_empty());
+    assert_eq!(
+        ix.ids_range(Excluded(&Value::i64(0)), Unbounded),
+        vec!["a", "b", "c", "d", "e", "f"]
+    );
+    assert_eq!(
+        ix.ids_range(Included(&Value::i64(50)), Unbounded),
+        vec!["f"]
+    );
+    assert!(
+        ix.ids_range(Included(&Value::i64(41)), Included(&Value::i64(54)))
+            .is_empty()
+    );
 }
 
 #[test]
@@ -189,7 +209,10 @@ fn remove_doc_cleans_all_indexes() {
     assert_eq!(age.ids_equal(&Value::i64(1)), vec!["keep"]);
     assert_eq!(age.ids_equal(&Value::Null), vec!["noage"]);
     assert_eq!(
-        c.index("_id").unwrap().ids_range(Unbounded, Unbounded).len(),
+        c.index("_id")
+            .unwrap()
+            .ids_range(Unbounded, Unbounded)
+            .len(),
         2,
         "primary index shrank too"
     );
@@ -204,11 +227,17 @@ fn remove_doc_cleans_all_indexes() {
 fn set_doc_refreshes_index_entries() {
     let mut c = Collection::new("t");
     c.create_index("age").unwrap();
-    c.insert(id_doc("d", &[("age", Value::i64(20)), ("name", Value::str("old"))]))
-        .unwrap();
+    c.insert(id_doc(
+        "d",
+        &[("age", Value::i64(20)), ("name", Value::str("old"))],
+    ))
+    .unwrap();
 
     let old = c
-        .set_doc("d", doc(&[("age", Value::i64(40)), ("name", Value::str("new"))]))
+        .set_doc(
+            "d",
+            doc(&[("age", Value::i64(40)), ("name", Value::str("new"))]),
+        )
         .unwrap()
         .expect("doc was present");
     assert_eq!(old.get("name"), Some(&Value::str("old")));
@@ -218,7 +247,10 @@ fn set_doc_refreshes_index_entries() {
     assert!(ix.ids_equal(&Value::i64(20)).is_empty(), "stale value gone");
     assert_eq!(ix.ids_equal(&Value::i64(40)), vec!["d"]);
     // primary entry untouched (same _id)
-    assert_eq!(c.index("_id").unwrap().ids_equal(&Value::str("d")), vec!["d"]);
+    assert_eq!(
+        c.index("_id").unwrap().ids_equal(&Value::str("d")),
+        vec!["d"]
+    );
     // missing field in the new doc → Null entry in that field's index
     assert_eq!(ix.ids_range(Unbounded, Unbounded), vec!["d"]);
 }

@@ -18,8 +18,7 @@ use std::collections::HashMap;
 use std::sync::RwLock;
 
 fn main() -> std::io::Result<()> {
-    let addr =
-        std::env::var("MOORACER_ADDR").unwrap_or_else(|_| "127.0.0.1:4141".to_string());
+    let addr = std::env::var("MOORACER_ADDR").unwrap_or_else(|_| "127.0.0.1:4141".to_string());
 
     let server = Server::new();
     let listener = std::net::TcpListener::bind(&addr)?;
@@ -36,7 +35,10 @@ fn main() -> std::io::Result<()> {
                 _ => panic!("bad MOORACER_VECTOR_INDEX entry {entry:?} (want coll:field:dim)"),
             };
             let dim: usize = dim.parse().expect("dim must be an integer");
-            write.entry(coll.clone()).or_insert_with(|| Collection::new(coll)).create_vector_index(&field, dim);
+            write
+                .entry(coll.clone())
+                .or_insert_with(|| Collection::new(coll))
+                .create_vector_index(&field, dim);
         }
     }
     if let Ok(spec) = std::env::var("MOORACER_TEXT_INDEX") {
@@ -46,7 +48,10 @@ fn main() -> std::io::Result<()> {
                 (Some(c), Some(f)) => (c.to_string(), f.to_string()),
                 _ => panic!("bad MOORACER_TEXT_INDEX entry {entry:?} (want coll:field)"),
             };
-            write.entry(coll.clone()).or_insert_with(|| Collection::new(coll)).create_text_index(&field);
+            write
+                .entry(coll.clone())
+                .or_insert_with(|| Collection::new(coll))
+                .create_text_index(&field);
         }
     }
     drop(write);

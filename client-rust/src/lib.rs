@@ -167,25 +167,44 @@ fn value_to_wire<'a>(b: &mut FlatBufferBuilder<'a>, v: &Value) -> WIPOffset<wire
     match v {
         Value::Null => wire::Value::create(
             b,
-            &wire::ValueArgs { kind: wire::ValueKind::Null, ..Default::default() },
+            &wire::ValueArgs {
+                kind: wire::ValueKind::Null,
+                ..Default::default()
+            },
         ),
         Value::Bool(x) => wire::Value::create(
             b,
-            &wire::ValueArgs { kind: wire::ValueKind::Bool, b: *x, ..Default::default() },
+            &wire::ValueArgs {
+                kind: wire::ValueKind::Bool,
+                b: *x,
+                ..Default::default()
+            },
         ),
         Value::I64(x) => wire::Value::create(
             b,
-            &wire::ValueArgs { kind: wire::ValueKind::I64, i: *x, ..Default::default() },
+            &wire::ValueArgs {
+                kind: wire::ValueKind::I64,
+                i: *x,
+                ..Default::default()
+            },
         ),
         Value::F64(x) => wire::Value::create(
             b,
-            &wire::ValueArgs { kind: wire::ValueKind::F64, f: *x, ..Default::default() },
+            &wire::ValueArgs {
+                kind: wire::ValueKind::F64,
+                f: *x,
+                ..Default::default()
+            },
         ),
         Value::Str(s) => {
             let s = b.create_string(s);
             wire::Value::create(
                 b,
-                &wire::ValueArgs { kind: wire::ValueKind::Str, s: Some(s), ..Default::default() },
+                &wire::ValueArgs {
+                    kind: wire::ValueKind::Str,
+                    s: Some(s),
+                    ..Default::default()
+                },
             )
         }
         Value::Array(items) => {
@@ -193,7 +212,11 @@ fn value_to_wire<'a>(b: &mut FlatBufferBuilder<'a>, v: &Value) -> WIPOffset<wire
             let arr = b.create_vector(&offs);
             wire::Value::create(
                 b,
-                &wire::ValueArgs { kind: wire::ValueKind::Array, arr: Some(arr), ..Default::default() },
+                &wire::ValueArgs {
+                    kind: wire::ValueKind::Array,
+                    arr: Some(arr),
+                    ..Default::default()
+                },
             )
         }
         Value::Object(pairs) => {
@@ -236,7 +259,6 @@ where
             collection: Some(coll_off),
             command_type,
             command,
-            ..Default::default()
         },
     );
     b.finish(req, Some(wire::FILE_IDENTIFIER));
@@ -283,6 +305,8 @@ pub enum Response {
     Search(Vec<(Value, f64)>),
     Group(Vec<Value>),
     Stats(Stats),
+    /// The index-management command succeeded (`IndexCmd`).
+    Index,
 }
 
 // ---------------------------------------------------------------------------
@@ -305,7 +329,11 @@ impl Client {
     pub fn connect(addr: &str) -> io::Result<Self> {
         let stream = TcpStream::connect(addr)?;
         stream.set_nodelay(true).ok();
-        Ok(Client { stream, buf: Vec::new(), next_id: 0 })
+        Ok(Client {
+            stream,
+            buf: Vec::new(),
+            next_id: 0,
+        })
     }
 
     /// The next correlation id, wrapping.
@@ -319,7 +347,10 @@ impl Client {
     /// Reborrowed `&mut`: a `Client` may drive one in-flight request at a
     /// time (a request/response loop), which is exactly the wire's model.
     pub fn collection(&mut self, name: &str) -> Collection<'_> {
-        Collection { client: self, name: name.to_string() }
+        Collection {
+            client: self,
+            name: name.to_string(),
+        }
     }
 
     /// Send one finished request frame, read the response, and decode its
@@ -424,9 +455,13 @@ fn decode_body(resp: wire::Response) -> Result<Response> {
                 per_index,
             }))
         }
-        wire::ResponseBody(t) => {
-            Err(Error::Protocol(format!("unknown response body variant {t}")))
+        wire::ResponseBody::IndexRes => {
+            let _ = resp.body_as_index_res().expect("IndexRes");
+            Ok(Response::Index)
         }
+        wire::ResponseBody(t) => Err(Error::Protocol(format!(
+            "unknown response body variant {t}"
+        ))),
     }
 }
 
@@ -460,7 +495,9 @@ impl<'c> Collection<'c> {
                 .into_iter()
                 .next()
                 .ok_or_else(|| Error::Protocol("insert returned no id".into()))?),
-            other => Err(Error::Protocol(format!("unexpected response {other:?} for insert"))),
+            other => Err(Error::Protocol(format!(
+                "unexpected response {other:?} for insert"
+            ))),
         }
     }
 
@@ -470,12 +507,19 @@ impl<'c> Collection<'c> {
         let payload = build_request(&self.name, req_id, |b| {
             let offs: Vec<_> = docs.iter().map(|d| value_to_wire(b, d)).collect();
             let docs_off = b.create_vector(&offs);
-            let cmd = wire::InsertCmd::create(b, &wire::InsertCmdArgs { docs: Some(docs_off) });
+            let cmd = wire::InsertCmd::create(
+                b,
+                &wire::InsertCmdArgs {
+                    docs: Some(docs_off),
+                },
+            );
             (Command::InsertCmd, Some(cmd.as_union_value()))
         });
         match self.client.send_receive(payload)? {
             Response::Insert(ids) => Ok(ids),
-            other => Err(Error::Protocol(format!("unexpected response {other:?} for insert_many"))),
+            other => Err(Error::Protocol(format!(
+                "unexpected response {other:?} for insert_many"
+            ))),
         }
     }
 
@@ -511,7 +555,9 @@ impl<'c> Collection<'c> {
         });
         match self.client.send_receive(payload)? {
             Response::Count(n) => Ok(n),
-            other => Err(Error::Protocol(format!("unexpected response {other:?} for count"))),
+            other => Err(Error::Protocol(format!(
+                "unexpected response {other:?} for count"
+            ))),
         }
     }
 
@@ -525,18 +571,28 @@ impl<'c> Collection<'c> {
         });
         match self.client.send_receive(payload)? {
             Response::Exists(e) => Ok(e),
-            other => Err(Error::Protocol(format!("unexpected response {other:?} for exists"))),
+            other => Err(Error::Protocol(format!(
+                "unexpected response {other:?} for exists"
+            ))),
         }
     }
 
     /// `update_one`: apply a Mongo operator object to the first match. Errors
     /// [`Status::NoMatch`] when nothing matches (the engine's convention).
-    pub fn update_one(&mut self, filter: impl Into<Value>, update: impl Into<Value>) -> Result<u64> {
+    pub fn update_one(
+        &mut self,
+        filter: impl Into<Value>,
+        update: impl Into<Value>,
+    ) -> Result<u64> {
         self.update(filter.into(), update.into(), false)
     }
 
     /// `update_many`: apply a Mongo operator object to every match (0 valid).
-    pub fn update_many(&mut self, filter: impl Into<Value>, update: impl Into<Value>) -> Result<u64> {
+    pub fn update_many(
+        &mut self,
+        filter: impl Into<Value>,
+        update: impl Into<Value>,
+    ) -> Result<u64> {
         self.update(filter.into(), update.into(), true)
     }
 
@@ -547,29 +603,47 @@ impl<'c> Collection<'c> {
             let u = value_to_wire(b, &update);
             let cmd = wire::UpdateCmd::create(
                 b,
-                &wire::UpdateCmdArgs { filter: Some(f), update: Some(u), many },
+                &wire::UpdateCmdArgs {
+                    filter: Some(f),
+                    update: Some(u),
+                    many,
+                },
             );
             (Command::UpdateCmd, Some(cmd.as_union_value()))
         });
         match self.client.send_receive(payload)? {
             Response::Update(n) => Ok(n),
-            other => Err(Error::Protocol(format!("unexpected response {other:?} for update"))),
+            other => Err(Error::Protocol(format!(
+                "unexpected response {other:?} for update"
+            ))),
         }
     }
 
     /// `replace_one`: wholesale-replace the first match (preserving `_id`).
     /// Errors [`Status::NoMatch`] when nothing matches.
-    pub fn replace_one(&mut self, filter: impl Into<Value>, new_doc: impl Into<Value>) -> Result<u64> {
+    pub fn replace_one(
+        &mut self,
+        filter: impl Into<Value>,
+        new_doc: impl Into<Value>,
+    ) -> Result<u64> {
         let req_id = self.client.take_id();
         let payload = build_request(&self.name, req_id, |b| {
             let f = value_to_wire(b, &filter.into());
             let nd = value_to_wire(b, &new_doc.into());
-            let cmd = wire::ReplaceCmd::create(b, &wire::ReplaceCmdArgs { filter: Some(f), new_doc: Some(nd) });
+            let cmd = wire::ReplaceCmd::create(
+                b,
+                &wire::ReplaceCmdArgs {
+                    filter: Some(f),
+                    new_doc: Some(nd),
+                },
+            );
             (Command::ReplaceCmd, Some(cmd.as_union_value()))
         });
         match self.client.send_receive(payload)? {
             Response::Replace(n) => Ok(n),
-            other => Err(Error::Protocol(format!("unexpected response {other:?} for replace"))),
+            other => Err(Error::Protocol(format!(
+                "unexpected response {other:?} for replace"
+            ))),
         }
     }
 
@@ -587,12 +661,20 @@ impl<'c> Collection<'c> {
         let req_id = self.client.take_id();
         let payload = build_request(&self.name, req_id, |b| {
             let f = value_to_wire(b, &filter);
-            let cmd = wire::DeleteCmd::create(b, &wire::DeleteCmdArgs { filter: Some(f), many });
+            let cmd = wire::DeleteCmd::create(
+                b,
+                &wire::DeleteCmdArgs {
+                    filter: Some(f),
+                    many,
+                },
+            );
             (Command::DeleteCmd, Some(cmd.as_union_value()))
         });
         match self.client.send_receive(payload)? {
             Response::Delete(n) => Ok(n),
-            other => Err(Error::Protocol(format!("unexpected response {other:?} for delete"))),
+            other => Err(Error::Protocol(format!(
+                "unexpected response {other:?} for delete"
+            ))),
         }
     }
 
@@ -611,13 +693,19 @@ impl<'c> Collection<'c> {
             let q = b.create_vector(query);
             let cmd = wire::VectorSearchCmd::create(
                 b,
-                &wire::VectorSearchCmdArgs { field: Some(field_off), query: Some(q), limit },
+                &wire::VectorSearchCmdArgs {
+                    field: Some(field_off),
+                    query: Some(q),
+                    limit,
+                },
             );
             (Command::VectorSearchCmd, Some(cmd.as_union_value()))
         });
         match self.client.send_receive(payload)? {
             Response::Search(hits) => Ok(hits),
-            other => Err(Error::Protocol(format!("unexpected response {other:?} for vector_search"))),
+            other => Err(Error::Protocol(format!(
+                "unexpected response {other:?} for vector_search"
+            ))),
         }
     }
 
@@ -634,13 +722,19 @@ impl<'c> Collection<'c> {
             let q = b.create_string(query);
             let cmd = wire::TextSearchCmd::create(
                 b,
-                &wire::TextSearchCmdArgs { field: Some(field_off), query: Some(q), limit },
+                &wire::TextSearchCmdArgs {
+                    field: Some(field_off),
+                    query: Some(q),
+                    limit,
+                },
             );
             (Command::TextSearchCmd, Some(cmd.as_union_value()))
         });
         match self.client.send_receive(payload)? {
             Response::Search(hits) => Ok(hits),
-            other => Err(Error::Protocol(format!("unexpected response {other:?} for text_search"))),
+            other => Err(Error::Protocol(format!(
+                "unexpected response {other:?} for text_search"
+            ))),
         }
     }
 
@@ -674,7 +768,9 @@ impl<'c> Collection<'c> {
         });
         match self.client.send_receive(payload)? {
             Response::Search(hits) => Ok(hits),
-            other => Err(Error::Protocol(format!("unexpected response {other:?} for hybrid_search"))),
+            other => Err(Error::Protocol(format!(
+                "unexpected response {other:?} for hybrid_search"
+            ))),
         }
     }
 
@@ -687,7 +783,64 @@ impl<'c> Collection<'c> {
         });
         match self.client.send_receive(payload)? {
             Response::Stats(s) => Ok(s),
-            other => Err(Error::Protocol(format!("unexpected response {other:?} for stats"))),
+            other => Err(Error::Protocol(format!(
+                "unexpected response {other:?} for stats"
+            ))),
+        }
+    }
+
+    // -- index management (wire-level; enables search at runtime) ---------
+
+    /// Create a value field index on `field` (enables equality + range scans).
+    pub fn create_index(&mut self, field: &str) -> Result<()> {
+        self.index_op(wire::IndexKind::CreateValue, field, 0)
+    }
+
+    /// Drop a value field index on `field`. `_id` cannot be dropped
+    /// ([`Status::PrimaryIndex`]).
+    pub fn drop_index(&mut self, field: &str) -> Result<()> {
+        self.index_op(wire::IndexKind::DropValue, field, 0)
+    }
+
+    /// Create a vector index on `field` with dimension `dim`.
+    pub fn create_vector_index(&mut self, field: &str, dim: u64) -> Result<()> {
+        self.index_op(wire::IndexKind::CreateVector, field, dim)
+    }
+
+    /// Drop a vector index on `field`.
+    pub fn drop_vector_index(&mut self, field: &str) -> Result<()> {
+        self.index_op(wire::IndexKind::DropVector, field, 0)
+    }
+
+    /// Create a BM25 text index on `field`.
+    pub fn create_text_index(&mut self, field: &str) -> Result<()> {
+        self.index_op(wire::IndexKind::CreateText, field, 0)
+    }
+
+    /// Drop a text index on `field`.
+    pub fn drop_text_index(&mut self, field: &str) -> Result<()> {
+        self.index_op(wire::IndexKind::DropText, field, 0)
+    }
+
+    fn index_op(&mut self, kind: wire::IndexKind, field: &str, dim: u64) -> Result<()> {
+        let req_id = self.client.take_id();
+        let payload = build_request(&self.name, req_id, |b| {
+            let field_off = b.create_string(field);
+            let cmd = wire::IndexCmd::create(
+                b,
+                &wire::IndexCmdArgs {
+                    kind,
+                    field: Some(field_off),
+                    dim,
+                },
+            );
+            (Command::IndexCmd, Some(cmd.as_union_value()))
+        });
+        match self.client.send_receive(payload)? {
+            Response::Index => Ok(()),
+            other => Err(Error::Protocol(format!(
+                "unexpected response {other:?} for index op"
+            ))),
         }
     }
 }
@@ -735,7 +888,9 @@ impl<'q> Query<'q> {
     pub fn to_list(self) -> Result<Vec<Value>> {
         match self.find_pipeline()? {
             Response::Find(docs) => Ok(docs),
-            other => Err(Error::Protocol(format!("unexpected response {other:?} for find"))),
+            other => Err(Error::Protocol(format!(
+                "unexpected response {other:?} for find"
+            ))),
         }
     }
 
@@ -767,7 +922,9 @@ impl<'q> Query<'q> {
         let resp = self.client.send_receive(payload)?;
         match resp {
             Response::Find(docs) => Ok(docs.into_iter().next()),
-            other => Err(Error::Protocol(format!("unexpected response {other:?} for first"))),
+            other => Err(Error::Protocol(format!(
+                "unexpected response {other:?} for first"
+            ))),
         }
     }
 
@@ -785,7 +942,9 @@ impl<'q> Query<'q> {
         });
         match self.client.send_receive(payload)? {
             Response::Count(n) => Ok(n),
-            other => Err(Error::Protocol(format!("unexpected response {other:?} for count"))),
+            other => Err(Error::Protocol(format!(
+                "unexpected response {other:?} for count"
+            ))),
         }
     }
 
@@ -904,7 +1063,9 @@ impl<'c> GroupQuery<'c> {
         let resp = self.client.send_receive(payload)?;
         match resp {
             Response::Group(groups) => Ok(groups),
-            other => Err(Error::Protocol(format!("unexpected response {other:?} for agg"))),
+            other => Err(Error::Protocol(format!(
+                "unexpected response {other:?} for agg"
+            ))),
         }
     }
 }
@@ -944,7 +1105,11 @@ mod tests {
             ("s".to_string(), Value::Str("moo \u{1F404}".into())),
             (
                 "arr".to_string(),
-                Value::Array(vec![Value::I64(1), Value::Str("x".into()), Value::Bool(false)]),
+                Value::Array(vec![
+                    Value::I64(1),
+                    Value::Str("x".into()),
+                    Value::Bool(false),
+                ]),
             ),
             (
                 "obj".to_string(),

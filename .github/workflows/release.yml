@@ -1,0 +1,80 @@
+name: Release (PyPI)
+
+# On a `v*` tag, build the pure-Python package (sdist + wheel), verify it is a
+# genuine `py3-none-any` wheel that imports, then publish to PyPI via **trusted
+# publishing** (GitHub OIDC — no long-lived token) and cut a GitHub Release.
+#
+# To enable trusted publishing, add this repo as a trusted publisher on PyPI
+# (PyPI → "Publishing" → add a Python project with owner `patw`, repo
+# `mooracer`, workflow `.github/workflows/release.yml`). The package version
+# comes from `client-python/pyproject.toml`; tag with `v<version>`.
+#
+# crates.io publishing for the Rust crates is intentionally not wired here yet
+# (see ROADMAP.md) — it needs per-crate API tokens and a publish-order script.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  python:
+    name: Build Python package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build sdist + wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build client-python --outdir dist
+
+      - name: Verify it is genuinely pure Python and installs
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -la dist/
+          test -f dist/*-py3-none-any.whl
+          if python -m zipfile -l dist/*-py3-none-any.whl | grep -qE '\.(so|pyd|dylib)'; then
+            echo "pure-Python wheel contains a compiled extension" >&2
+            exit 1
+          fi
+          pip install dist/*.whl
+          python -c "import mooracer; print('mooracer', mooracer.__version__)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: dist/
+
+  publish:
+    needs: python
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # for PyPI trusted publishing (OIDC)
+      contents: write   # for the GitHub Release
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+
+      - name: GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          make_latest: true

@@ -136,6 +136,24 @@ table GroupCmd {
 // Collection statistics (docs, per-index memory estimates, counts).
 table StatsCmd {}
 
+// Index management (create/drop value, vector, and text indexes at runtime).
+// Without this there is no way for a client to enable search on a collection
+// (v1 before this command had only the server-side index setup).
+enum IndexKind : ubyte {
+  CreateValue,   // create a value field index on `field`
+  DropValue,     // drop a value field index on `field`
+  CreateVector,  // create a vector index on `field` with dimension `dim`
+  DropVector,    // drop a vector index on `field`
+  CreateText,    // create a text index on `field`
+  DropText,      // drop a text index on `field`
+}
+
+table IndexCmd {
+  kind: IndexKind;
+  field: string;
+  dim: ulong;           // for CreateVector; 0/ignored otherwise
+}
+
 union Command {
   InsertCmd,
   FindCmd,
@@ -149,6 +167,7 @@ union Command {
   HybridSearchCmd,
   GroupCmd,
   StatsCmd,
+  IndexCmd,
 }
 
 // ---------------------------------------------------------------------------
@@ -203,6 +222,11 @@ table StatsRes {
   per_index: [IndexStat]; // sorted by field name; always includes `_id`
 }
 
+// Success marker for an index-management command (IndexCmd). A non-OK status
+// (NoIndex / PrimaryIndex / ...) carries the detail; on OK the index was
+// created/dropped.
+table IndexRes {}
+
 union ResponseBody {
   InsertRes,
   FindRes,
@@ -214,6 +238,7 @@ union ResponseBody {
   SearchRes,
   GroupRes,
   StatsRes,
+  IndexRes,
 }
 
 // ---------------------------------------------------------------------------

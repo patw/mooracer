@@ -33,20 +33,20 @@ MOORACER_ADDR=127.0.0.1:4141 cargo run --release -p mooracer-server
 MOORACER_ADDR=127.0.0.1:4141 python3 examples/simple_crud.py
 ```
 
-### complex_usage.py — needs a server with vector/text indexes
+### complex_usage.py — a plain server (indexes created over the wire)
 
-The wire v1 protocol has **no index-management command**, so indexes must be
-created server-side. Use the *dev* server, which pre-creates them from
-environment variables before serving:
+The example creates its own value/vector/text indexes with the client
+(`create_index` / `create_vector_index` / `create_text_index`), so it also runs
+against the **plain** `mooracer-server` — no index env vars, no dev server:
 
 ```sh
-# terminal 1 — pre-create a vector index on `embedding` (dim 8) and a
-# text index on `description` for the `products` collection
-MOORACER_ADDR=127.0.0.1:4141 \
-MOORACER_VECTOR_INDEX=products:embedding:8 \
-MOORACER_TEXT_INDEX=products:description \
-    cargo run --release -p mooracer-server --bin mooracer-devserver
+# terminal 1
+MOORACER_ADDR=127.0.0.1:4141 cargo run --release -p mooracer-server
 
 # terminal 2
 MOORACER_ADDR=127.0.0.1:4141 python3 examples/complex_usage.py
 ```
+
+> The `mooracer-devserver` binary is still used by the *test* suite to
+> pre-create indexes (and remains useful for that), but is no longer needed to
+> run this example.

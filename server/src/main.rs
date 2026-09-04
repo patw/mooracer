@@ -4,7 +4,7 @@
 //! pool size from `MOORACER_THREADS` (default 8), then serves until the
 //! listener errors. All protocol logic lives in the `mooracer_server` library.
 
-use mooracer_server::{Server, DEFAULT_POOL_SIZE};
+use mooracer_server::{DEFAULT_POOL_SIZE, Server};
 
 fn main() -> std::io::Result<()> {
     let addr = std::env::var("MOORACER_ADDR").unwrap_or_else(|_| "127.0.0.1:4141".to_string());

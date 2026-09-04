@@ -76,7 +76,10 @@ fn key(g: &Value) -> &str {
 #[test]
 fn group_count_shapes_and_default_key_order() {
     let c = sales();
-    let g = c.find(Value::object()).group("region").agg(AggFn::Count, "");
+    let g = c
+        .find(Value::object())
+        .group("region")
+        .agg(AggFn::Count, "");
     // three groups: Null (f), "east" (a,b,e), "west" (c,d); default order is
     // key total order: Null < "east" < "west"
     assert_eq!(g.len(), 3);
@@ -93,7 +96,10 @@ fn group_count_shapes_and_default_key_order() {
 #[test]
 fn group_sum_mean_per_region() {
     let c = sales();
-    let g = c.find(Value::object()).group("region").agg(AggFn::Sum, "price");
+    let g = c
+        .find(Value::object())
+        .group("region")
+        .agg(AggFn::Sum, "price");
     // east: 10 + 20 + 15.5 = 45.5 (F64), west: 35 (I64), Null: 1 (I64)
     assert_eq!(g[0].get("sum"), Some(&Value::i64(1)));
     assert_eq!(g[1].get("sum"), Some(&Value::f64(45.5)));
@@ -101,7 +107,10 @@ fn group_sum_mean_per_region() {
     assert_eq!(g[2].get("sum"), Some(&Value::i64(35)));
     assert!(matches!(g[2].get("sum"), Some(Value::I64(35))));
 
-    let g = c.find(Value::object()).group("region").agg(AggFn::Mean, "price");
+    let g = c
+        .find(Value::object())
+        .group("region")
+        .agg(AggFn::Mean, "price");
     let east = g[1].get("mean").unwrap().as_f64().unwrap();
     assert!((east - 45.5 / 3.0).abs() < 1e-12);
     let west = g[2].get("mean").unwrap().as_f64().unwrap();
@@ -111,10 +120,16 @@ fn group_sum_mean_per_region() {
 #[test]
 fn group_min_max_and_collect() {
     let c = sales();
-    let g = c.find(Value::object()).group("region").agg(AggFn::Min, "price");
+    let g = c
+        .find(Value::object())
+        .group("region")
+        .agg(AggFn::Min, "price");
     assert_eq!(g[1].get("min"), Some(&Value::i64(10)));
     assert_eq!(g[2].get("min"), Some(&Value::i64(5)));
-    let g = c.find(Value::object()).group("region").agg(AggFn::Max, "price");
+    let g = c
+        .find(Value::object())
+        .group("region")
+        .agg(AggFn::Max, "price");
     assert_eq!(g[1].get("max"), Some(&Value::i64(20)));
     assert_eq!(g[2].get("max"), Some(&Value::i64(30)));
 

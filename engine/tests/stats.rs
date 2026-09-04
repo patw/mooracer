@@ -14,12 +14,24 @@ fn doc(pairs: &[(&str, Value)]) -> Value {
 
 fn populate() -> Collection {
     let mut c = Collection::new("cattle");
-    c.insert(doc(&[("_id", Value::str("moo")), ("age", Value::i64(4)), ("sound", Value::str("moo"))]))
-        .unwrap();
-    c.insert(doc(&[("_id", Value::str("bess")), ("age", Value::i64(6)), ("sound", Value::str("baa"))]))
-        .unwrap();
-    c.insert(doc(&[("_id", Value::str("daisy")), ("age", Value::i64(4)), ("sound", Value::str("moo"))]))
-        .unwrap();
+    c.insert(doc(&[
+        ("_id", Value::str("moo")),
+        ("age", Value::i64(4)),
+        ("sound", Value::str("moo")),
+    ]))
+    .unwrap();
+    c.insert(doc(&[
+        ("_id", Value::str("bess")),
+        ("age", Value::i64(6)),
+        ("sound", Value::str("baa")),
+    ]))
+    .unwrap();
+    c.insert(doc(&[
+        ("_id", Value::str("daisy")),
+        ("age", Value::i64(4)),
+        ("sound", Value::str("moo")),
+    ]))
+    .unwrap();
     c.create_index("age").unwrap();
     c.create_index("sound").unwrap();
     c
@@ -33,7 +45,10 @@ fn stats_public_shape() {
     assert_eq!(s.indexes, 3);
     assert_eq!(s.per_index.len(), 3);
     assert_eq!(
-        s.per_index.iter().map(|i: &IndexStats| i.field.as_str()).collect::<Vec<_>>(),
+        s.per_index
+            .iter()
+            .map(|i: &IndexStats| i.field.as_str())
+            .collect::<Vec<_>>(),
         vec!["_id", "age", "sound"]
     );
     for ix in &s.per_index {
@@ -58,7 +73,10 @@ fn reindex_then_queries_still_correct() {
     assert_eq!(c.count(Value::object_from(f.clone())), 2);
     f.push(("sound".to_string(), Value::str("moo")));
     assert_eq!(c.count(Value::object_from(f)), 2);
-    assert_eq!(c.index("age").unwrap().ids_equal(&Value::i64(4)), vec!["daisy", "moo"]);
+    assert_eq!(
+        c.index("age").unwrap().ids_equal(&Value::i64(4)),
+        vec!["daisy", "moo"]
+    );
     // Stats before/after are identical: the rebuild is deterministic.
     let before = c.stats();
     c.reindex();

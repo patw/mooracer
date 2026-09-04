@@ -260,17 +260,17 @@ impl<'c> Query<'c> {
                 let mut seen = 0usize;
                 let mut returned = 0usize;
                 let mut emit = |id: &str| -> bool {
-                    if let Some(doc) = self.col.get(id) {
-                        if doc_matches(doc, &self.filter) {
-                            seen += 1;
-                            if seen > skip {
-                                if !f(doc) {
-                                    return true; // the caller asked to stop
-                                }
-                                returned += 1;
-                                if limit > 0 && returned >= limit {
-                                    return true;
-                                }
+                    if let Some(doc) = self.col.get(id)
+                        && doc_matches(doc, &self.filter)
+                    {
+                        seen += 1;
+                        if seen > skip {
+                            if !f(doc) {
+                                return true; // the caller asked to stop
+                            }
+                            returned += 1;
+                            if limit > 0 && returned >= limit {
+                                return true;
                             }
                         }
                     }
@@ -337,20 +337,22 @@ impl<'c> Query<'c> {
             }
             Plan::Index { idx, lo, hi } => {
                 for id in idx.ids_range(bref(&lo), bref(&hi)) {
-                    if let Some(doc) = self.col.get(id) {
-                        if doc_matches(doc, &self.filter) && handle(doc) {
-                            return;
-                        }
+                    if let Some(doc) = self.col.get(id)
+                        && doc_matches(doc, &self.filter)
+                        && handle(doc)
+                    {
+                        return;
                     }
                 }
             }
             Plan::In { idx, values } => {
                 for v in values.iter() {
                     for id in idx.ids_range(Bound::Included(v), Bound::Included(v)) {
-                        if let Some(doc) = self.col.get(id) {
-                            if doc_matches(doc, &self.filter) && handle(doc) {
-                                return;
-                            }
+                        if let Some(doc) = self.col.get(id)
+                            && doc_matches(doc, &self.filter)
+                            && handle(doc)
+                        {
+                            return;
                         }
                     }
                 }
@@ -437,16 +439,11 @@ fn bref(b: &Bound<Value>) -> Bound<&Value> {
 enum IndexPlan {
     /// One contiguous value range (a direct value, or the intersection of
     /// the bound operators `$eq`/`$gt`/`$gte`/`$lt`/`$lte`).
-    Range {
-        lo: Bound<Value>,
-        hi: Bound<Value>,
-    },
+    Range { lo: Bound<Value>, hi: Bound<Value> },
     /// The union of the point ranges of an `$in` list: the list's values,
     /// deduped and total-order ascending, so fetching the point ranges in
     /// order walks the index in order.
-    Points {
-        values: Vec<Value>,
-    },
+    Points { values: Vec<Value> },
 }
 
 /// Find the first condition in a filter-entry list (entry order) that can
@@ -460,19 +457,16 @@ enum IndexPlan {
 /// (a scan verifies it). A malformed `$and` operand (non-array) or element
 /// (non-object) simply cannot drive — the scan handles the matching (and
 /// matches nothing, as [`doc_matches`] defines).
-fn plan_from_entries<'a>(
-    col: &'a Collection,
-    entries: &'a [(String, Value)],
-) -> Option<Plan<'a>> {
+fn plan_from_entries<'a>(col: &'a Collection, entries: &'a [(String, Value)]) -> Option<Plan<'a>> {
     for (field, cond) in entries {
         let key = field.as_str();
         if key == "$and" {
             if let Some(list) = cond.as_array() {
                 for elem in list {
-                    if let Some(sub) = elem.as_object() {
-                        if let Some(p) = plan_from_entries(col, sub) {
-                            return Some(p);
-                        }
+                    if let Some(sub) = elem.as_object()
+                        && let Some(p) = plan_from_entries(col, sub)
+                    {
+                        return Some(p);
                     }
                 }
             }
@@ -548,7 +542,7 @@ fn index_plan_for(cond: &Value) -> Option<IndexPlan> {
                     "$gte" => lo = tighten_lower(lo, (arg.clone(), true)),
                     "$lt" => hi = tighten_upper(hi, (arg.clone(), false)),
                     "$lte" => hi = tighten_upper(hi, (arg.clone(), true)),
-                    "$ne" => {} // verified per candidate; contributes no bound
+                    "$ne" => {}  // verified per candidate; contributes no bound
                     "$nin" => {} // complement of $in: verified per candidate, never a driver
                     "$not" => {} // negated expression: verified per candidate, contributes no bound
                     // `$exists` cannot drive: missing and explicit-null docs share
@@ -611,10 +605,7 @@ fn distinct_sorted(mut values: Vec<Value>) -> Vec<Value> {
 /// Tighten a lower bound: keep the stricter of the two. `inclusive` marks
 /// `$gte` (Included) vs `$gt` (Excluded). Equal values: the exclusive bound
 /// is stricter.
-fn tighten_lower(
-    cur: Option<(Value, bool)>,
-    new: (Value, bool),
-) -> Option<(Value, bool)> {
+fn tighten_lower(cur: Option<(Value, bool)>, new: (Value, bool)) -> Option<(Value, bool)> {
     match cur {
         None => Some(new),
         Some((cv, cinc)) => {
@@ -637,10 +628,7 @@ fn tighten_lower(
 /// Tighten an upper bound: keep the stricter of the two (the *smaller*
 /// upper bound). `inclusive` marks `$lte` vs `$lt`; equal values: exclusive
 /// is stricter.
-fn tighten_upper(
-    cur: Option<(Value, bool)>,
-    new: (Value, bool),
-) -> Option<(Value, bool)> {
+fn tighten_upper(cur: Option<(Value, bool)>, new: (Value, bool)) -> Option<(Value, bool)> {
     match cur {
         None => Some(new),
         Some((cv, cinc)) => {
@@ -725,10 +713,10 @@ fn or_match(doc: &Value, operand: &Value) -> bool {
 /// and equal under the engine's `Value` equality (exact cross-numeric, total
 /// NaN, canonical objects).
 fn condition_match(doc: &Value, field: &str, cond: &Value) -> bool {
-    if let Value::Object(entries) = cond {
-        if is_operator_object(entries) {
-            return op_match(doc, field, entries);
-        }
+    if let Value::Object(entries) = cond
+        && is_operator_object(entries)
+    {
+        return op_match(doc, field, entries);
     }
     match doc.get(field) {
         Some(v) => *v == *cond,
@@ -777,7 +765,7 @@ fn op_match_present(present: Option<&Value>, entries: &[(String, Value)]) -> boo
                 None => arg.is_null(),
             },
             "$ne" => match present {
-                Some(v) => !(*v == *arg),
+                Some(v) => *v != *arg,
                 None => !arg.is_null(),
             },
             "$gt" => present.is_some_and(|v| v.cmp(arg) == Ordering::Greater),
@@ -880,10 +868,8 @@ fn elem_match(present: Option<&Value>, criteria: &Value) -> bool {
         return false;
     };
     match elem_criteria(criteria) {
-        ElemCriteria::Direct(c) => elements.iter().any(|e| *e == *c),
-        ElemCriteria::Op(entries) => elements
-            .iter()
-            .any(|e| op_match_present(Some(e), entries)),
+        ElemCriteria::Direct(c) => elements.contains(c),
+        ElemCriteria::Op(entries) => elements.iter().any(|e| op_match_present(Some(e), entries)),
         ElemCriteria::SubDoc(c) => elements.iter().any(|e| doc_matches(e, c)),
     }
 }
@@ -897,7 +883,7 @@ fn elem_match(present: Option<&Value>, criteria: &Value) -> bool {
 /// (explicit null *and* absence). `$nin` is the exact complement.
 fn in_list(present: Option<&Value>, list: &[Value]) -> bool {
     match present {
-        Some(v) => list.iter().any(|e| *v == *e),
+        Some(v) => list.contains(v),
         None => list.iter().any(Value::is_null),
     }
 }
@@ -908,8 +894,7 @@ fn in_list(present: Option<&Value>, list: &[Value]) -> bool {
 /// object and is left to direct-value matching (which matches nothing, since
 /// no document field literally equals such an object).
 fn is_operator_object(entries: &[(String, Value)]) -> bool {
-    !entries.is_empty()
-        && entries.iter().all(|(k, _)| k.starts_with('$'))
+    !entries.is_empty() && entries.iter().all(|(k, _)| k.starts_with('$'))
 }
 
 // ---------------------------------------------------------------------------
@@ -963,9 +948,18 @@ mod tests {
     #[test]
     fn empty_filter_matches_everything_on_nonempty() {
         let c = col_with(&[
-            (Value::object_from(vec![("k".into(), Value::i64(1))]), Some(Value::str("a"))),
-            (Value::object_from(vec![("k".into(), Value::i64(2))]), Some(Value::str("b"))),
-            (Value::object_from(vec![("k".into(), Value::i64(3))]), Some(Value::str("c"))),
+            (
+                Value::object_from(vec![("k".into(), Value::i64(1))]),
+                Some(Value::str("a")),
+            ),
+            (
+                Value::object_from(vec![("k".into(), Value::i64(2))]),
+                Some(Value::str("b")),
+            ),
+            (
+                Value::object_from(vec![("k".into(), Value::i64(3))]),
+                Some(Value::str("c")),
+            ),
         ]);
         let all = Value::object();
         assert_eq!(c.find(all.clone()).to_list().len(), 3);
@@ -991,8 +985,14 @@ mod tests {
     #[test]
     fn find_to_list_returns_all_distinct_docs() {
         let c = col_with(&[
-            (Value::object_from(vec![("name".into(), Value::str("bess"))]), Some(Value::str("bess"))),
-            (Value::object_from(vec![("name".into(), Value::str("moo"))]), Some(Value::str("moo"))),
+            (
+                Value::object_from(vec![("name".into(), Value::str("bess"))]),
+                Some(Value::str("bess")),
+            ),
+            (
+                Value::object_from(vec![("name".into(), Value::str("moo"))]),
+                Some(Value::str("moo")),
+            ),
         ]);
         let got = sorted_ids(&c.find(Value::object()).to_list());
         assert_eq!(got, vec!["bess".to_string(), "moo".to_string()]);
@@ -1003,12 +1003,24 @@ mod tests {
     #[test]
     fn equality_filter_selects_matching_subset() {
         let c = col_with(&[
-            (Value::object_from(vec![("age".into(), Value::i64(25))]), Some(Value::str("young"))),
-            (Value::object_from(vec![("age".into(), Value::i64(40))]), Some(Value::str("mid"))),
-            (Value::object_from(vec![("age".into(), Value::i64(25))]), Some(Value::str("young2"))),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(25))]),
+                Some(Value::str("young")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(40))]),
+                Some(Value::str("mid")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(25))]),
+                Some(Value::str("young2")),
+            ),
         ]);
         let got = c.find(obj(&[("age", Value::i64(25))])).to_list();
-        assert_eq!(sorted_ids(&got), vec!["young".to_string(), "young2".to_string()]);
+        assert_eq!(
+            sorted_ids(&got),
+            vec!["young".to_string(), "young2".to_string()]
+        );
     }
 
     #[test]
@@ -1016,9 +1028,18 @@ mod tests {
         // i64(1) and f64(1.0) are equal under the engine total order, so a
         // filter of f64(1.0) must match a doc storing i64(1) and vice versa.
         let c = col_with(&[
-            (Value::object_from(vec![("n".into(), Value::i64(1))]), Some(Value::str("i"))),
-            (Value::object_from(vec![("n".into(), Value::f64(1.0))]), Some(Value::str("f"))),
-            (Value::object_from(vec![("n".into(), Value::i64(2))]), Some(Value::str("other"))),
+            (
+                Value::object_from(vec![("n".into(), Value::i64(1))]),
+                Some(Value::str("i")),
+            ),
+            (
+                Value::object_from(vec![("n".into(), Value::f64(1.0))]),
+                Some(Value::str("f")),
+            ),
+            (
+                Value::object_from(vec![("n".into(), Value::i64(2))]),
+                Some(Value::str("other")),
+            ),
         ]);
         assert_eq!(
             sorted_ids(&c.find(obj(&[("n", Value::f64(1.0))])).to_list()),
@@ -1033,7 +1054,10 @@ mod tests {
     #[test]
     fn missing_field_does_not_match_direct_value() {
         let c = col_with(&[
-            (Value::object_from(vec![("a".into(), Value::i64(1))]), Some(Value::str("has"))),
+            (
+                Value::object_from(vec![("a".into(), Value::i64(1))]),
+                Some(Value::str("has")),
+            ),
             (Value::object_from(vec![]), Some(Value::str("nope"))),
         ]);
         assert_eq!(c.find(obj(&[("a", Value::i64(1))])).count(), 1);
@@ -1050,10 +1074,7 @@ mod tests {
         let c = col_with(&[
             // exact match: addr == {city: NYC}
             (
-                Value::object_from(vec![(
-                    "addr".into(),
-                    obj(&[("city", Value::str("NYC"))]),
-                )]),
+                Value::object_from(vec![("addr".into(), obj(&[("city", Value::str("NYC"))]))]),
                 Some(Value::str("exact")),
             ),
             // superset: addr has an extra field -> NOT equal
@@ -1066,10 +1087,7 @@ mod tests {
             ),
             // different value
             (
-                Value::object_from(vec![(
-                    "addr".into(),
-                    obj(&[("city", Value::str("LA"))]),
-                )]),
+                Value::object_from(vec![("addr".into(), obj(&[("city", Value::str("LA"))]))]),
                 Some(Value::str("la")),
             ),
         ]);
@@ -1084,10 +1102,22 @@ mod tests {
     #[test]
     fn comparison_operators_bound_the_field() {
         let c = col_with(&[
-            (Value::object_from(vec![("age".into(), Value::i64(25))]), Some(Value::str("a"))),
-            (Value::object_from(vec![("age".into(), Value::i64(29))]), Some(Value::str("b"))),
-            (Value::object_from(vec![("age".into(), Value::i64(40))]), Some(Value::str("c"))),
-            (Value::object_from(vec![("age".into(), Value::i64(41))]), Some(Value::str("d"))),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(25))]),
+                Some(Value::str("a")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(29))]),
+                Some(Value::str("b")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(40))]),
+                Some(Value::str("c")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(41))]),
+                Some(Value::str("d")),
+            ),
         ]);
         let f = |pairs: &[(&str, Value)]| obj(&[("age", obj(pairs))]);
         assert_eq!(
@@ -1108,7 +1138,8 @@ mod tests {
         );
         // contradictory bounds match nothing
         assert_eq!(
-            c.find(f(&[("$gt", Value::i64(25)), ("$lt", Value::i64(25))])).count(),
+            c.find(f(&[("$gt", Value::i64(25)), ("$lt", Value::i64(25))]))
+                .count(),
             0
         );
     }
@@ -1117,19 +1148,46 @@ mod tests {
     fn range_combos_and_tightening() {
         // ages: 10, 24, 25, 30, 33, 39, 40, 41
         let c = col_with(&[
-            (Value::object_from(vec![("age".into(), Value::i64(10))]), Some(Value::str("a10"))),
-            (Value::object_from(vec![("age".into(), Value::i64(24))]), Some(Value::str("a24"))),
-            (Value::object_from(vec![("age".into(), Value::i64(25))]), Some(Value::str("a25"))),
-            (Value::object_from(vec![("age".into(), Value::i64(30))]), Some(Value::str("a30"))),
-            (Value::object_from(vec![("age".into(), Value::i64(33))]), Some(Value::str("a33"))),
-            (Value::object_from(vec![("age".into(), Value::i64(39))]), Some(Value::str("a39"))),
-            (Value::object_from(vec![("age".into(), Value::i64(40))]), Some(Value::str("a40"))),
-            (Value::object_from(vec![("age".into(), Value::i64(41))]), Some(Value::str("a41"))),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(10))]),
+                Some(Value::str("a10")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(24))]),
+                Some(Value::str("a24")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(25))]),
+                Some(Value::str("a25")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(30))]),
+                Some(Value::str("a30")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(33))]),
+                Some(Value::str("a33")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(39))]),
+                Some(Value::str("a39")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(40))]),
+                Some(Value::str("a40")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(41))]),
+                Some(Value::str("a41")),
+            ),
         ]);
         let f = |pairs: &[(&str, Value)]| obj(&[("age", obj(pairs))]);
         // the classic range combo from the spec
         assert_eq!(
-            sorted_ids(&c.find(f(&[("$gte", Value::i64(25)), ("$lt", Value::i64(40))])).to_list()),
+            sorted_ids(
+                &c.find(f(&[("$gte", Value::i64(25)), ("$lt", Value::i64(40))]))
+                    .to_list()
+            ),
             vec![
                 "a25".to_string(),
                 "a30".to_string(),
@@ -1139,7 +1197,10 @@ mod tests {
         );
         // same-value bounds: the exclusive one wins ($gt 30 + $gte 30 -> > 30)
         assert_eq!(
-            sorted_ids(&c.find(f(&[("$gte", Value::i64(30)), ("$gt", Value::i64(30))])).to_list()),
+            sorted_ids(
+                &c.find(f(&[("$gte", Value::i64(30)), ("$gt", Value::i64(30))]))
+                    .to_list()
+            ),
             vec![
                 "a33".to_string(),
                 "a39".to_string(),
@@ -1149,7 +1210,10 @@ mod tests {
         );
         // different values: the stronger bound wins, order in the object irrelevant
         assert_eq!(
-            sorted_ids(&c.find(f(&[("$gte", Value::i64(25)), ("$gt", Value::i64(30))])).to_list()),
+            sorted_ids(
+                &c.find(f(&[("$gte", Value::i64(25)), ("$gt", Value::i64(30))]))
+                    .to_list()
+            ),
             vec![
                 "a33".to_string(),
                 "a39".to_string(),
@@ -1158,7 +1222,10 @@ mod tests {
             ]
         );
         assert_eq!(
-            sorted_ids(&c.find(f(&[("$lt", Value::i64(33)), ("$lte", Value::i64(39))])).to_list()),
+            sorted_ids(
+                &c.find(f(&[("$lt", Value::i64(33)), ("$lte", Value::i64(39))]))
+                    .to_list()
+            ),
             vec![
                 "a10".to_string(),
                 "a24".to_string(),
@@ -1168,11 +1235,15 @@ mod tests {
         );
         // $eq and $ne AND together
         assert_eq!(
-            sorted_ids(&c.find(f(&[("$eq", Value::i64(30)), ("$ne", Value::i64(31))])).to_list()),
+            sorted_ids(
+                &c.find(f(&[("$eq", Value::i64(30)), ("$ne", Value::i64(31))]))
+                    .to_list()
+            ),
             vec!["a30".to_string()]
         );
         assert_eq!(
-            c.find(f(&[("$eq", Value::i64(30)), ("$ne", Value::i64(30))])).count(),
+            c.find(f(&[("$eq", Value::i64(30)), ("$ne", Value::i64(30))]))
+                .count(),
             0
         );
         // one-sided open ranges
@@ -1185,10 +1256,22 @@ mod tests {
     #[test]
     fn comparisons_are_exact_across_numeric_types() {
         let c = col_with(&[
-            (Value::object_from(vec![("n".into(), Value::i64(6))]), Some(Value::str("i6"))),
-            (Value::object_from(vec![("n".into(), Value::f64(5.5))]), Some(Value::str("f5.5"))),
-            (Value::object_from(vec![("n".into(), Value::i64(5))]), Some(Value::str("i5"))),
-            (Value::object_from(vec![("n".into(), Value::f64(6.0))]), Some(Value::str("f6.0"))),
+            (
+                Value::object_from(vec![("n".into(), Value::i64(6))]),
+                Some(Value::str("i6")),
+            ),
+            (
+                Value::object_from(vec![("n".into(), Value::f64(5.5))]),
+                Some(Value::str("f5.5")),
+            ),
+            (
+                Value::object_from(vec![("n".into(), Value::i64(5))]),
+                Some(Value::str("i5")),
+            ),
+            (
+                Value::object_from(vec![("n".into(), Value::f64(6.0))]),
+                Some(Value::str("f6.0")),
+            ),
         ]);
         let f = |pairs: &[(&str, Value)]| obj(&[("n", obj(pairs))]);
         // an i64(5) bound against f64 values: 5.5 > 5, 6 > 5, 6.0 > 5;
@@ -1213,8 +1296,14 @@ mod tests {
     #[test]
     fn missing_field_rules_for_operators() {
         let c = col_with(&[
-            (Value::object_from(vec![("a".into(), Value::i64(1))]), Some(Value::str("one"))),
-            (Value::object_from(vec![("a".into(), Value::Null)]), Some(Value::str("null"))),
+            (
+                Value::object_from(vec![("a".into(), Value::i64(1))]),
+                Some(Value::str("one")),
+            ),
+            (
+                Value::object_from(vec![("a".into(), Value::Null)]),
+                Some(Value::str("null")),
+            ),
             (Value::object_from(vec![]), Some(Value::str("absent"))),
         ]);
         let f = |pairs: &[(&str, Value)]| obj(&[("a", obj(pairs))]);
@@ -1285,9 +1374,10 @@ mod tests {
 
     #[test]
     fn unknown_operators_match_nothing() {
-        let mut c = col_with(&[
-            (Value::object_from(vec![("age".into(), Value::i64(30))]), Some(Value::str("x"))),
-        ]);
+        let mut c = col_with(&[(
+            Value::object_from(vec![("age".into(), Value::i64(30))]),
+            Some(Value::str("x")),
+        )]);
         let bogus = obj(&[("age", obj(&[("$bogus", Value::i64(1))]))]);
         assert_eq!(c.find(bogus.clone()).count(), 0, "scan path");
         c.create_index("age").unwrap();
@@ -1295,13 +1385,17 @@ mod tests {
         // a never-real operator name is unknown: matches nothing on both
         // paths (set/logical/element/array operators have their own subtasks)
         assert_eq!(
-            c.find(obj(&[("age", obj(&[("$fakeOp", Value::i64(1))]))])).count(),
+            c.find(obj(&[("age", obj(&[("$fakeOp", Value::i64(1))]))]))
+                .count(),
             0
         );
         // an unknown operator kills the condition even next to real ones
         assert_eq!(
-            c.find(obj(&[("age", obj(&[("$bogus", Value::i64(1)), ("$lt", Value::i64(40))]))]))
-                .count(),
+            c.find(obj(&[(
+                "age",
+                obj(&[("$bogus", Value::i64(1)), ("$lt", Value::i64(40))])
+            )]))
+            .count(),
             0
         );
     }
@@ -1386,8 +1480,14 @@ mod tests {
             Some(range(Included(i(2)), Unbounded))
         );
         // unknown operators: not indexable
-        assert_eq!(index_plan_for(&obj(&[("$ne", i(5)), ("$bogus", i(1))])), None);
-        assert_eq!(index_plan_for(&obj(&[("$in", in_arr(vec![i(5)])), ("$bogus", i(1))])), None);
+        assert_eq!(
+            index_plan_for(&obj(&[("$ne", i(5)), ("$bogus", i(1))])),
+            None
+        );
+        assert_eq!(
+            index_plan_for(&obj(&[("$in", in_arr(vec![i(5)])), ("$bogus", i(1))])),
+            None
+        );
         // a nested direct object is a point range on the whole object
         let city = obj(&[("city", Value::str("NYC"))]);
         assert_eq!(
@@ -1401,10 +1501,22 @@ mod tests {
     #[test]
     fn in_matches_any_list_element() {
         let c = col_with(&[
-            (Value::object_from(vec![("age".into(), Value::i64(25))]), Some(Value::str("a"))),
-            (Value::object_from(vec![("age".into(), Value::i64(30))]), Some(Value::str("b"))),
-            (Value::object_from(vec![("age".into(), Value::i64(40))]), Some(Value::str("c"))),
-            (Value::object_from(vec![("age".into(), Value::i64(50))]), Some(Value::str("d"))),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(25))]),
+                Some(Value::str("a")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(30))]),
+                Some(Value::str("b")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(40))]),
+                Some(Value::str("c")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(50))]),
+                Some(Value::str("d")),
+            ),
         ]);
         let f = |list: Vec<Value>| obj(&[("age", obj(&[("$in", Value::array_from(list))]))]);
         assert_eq!(
@@ -1413,7 +1525,10 @@ mod tests {
         );
         // list order irrelevant, duplicates harmless
         assert_eq!(
-            sorted_ids(&c.find(f(vec![Value::i64(40), Value::i64(25), Value::i64(40)])).to_list()),
+            sorted_ids(
+                &c.find(f(vec![Value::i64(40), Value::i64(25), Value::i64(40)]))
+                    .to_list()
+            ),
             vec!["a".to_string(), "c".to_string()]
         );
         // nothing in the list: no match
@@ -1431,15 +1546,26 @@ mod tests {
         );
         assert_eq!(
             sorted_ids(&c.find(g(vec![Value::i64(99)])).to_list()),
-            vec!["a".to_string(), "b".to_string(), "c".to_string(), "d".to_string()]
+            vec![
+                "a".to_string(),
+                "b".to_string(),
+                "c".to_string(),
+                "d".to_string()
+            ]
         );
     }
 
     #[test]
     fn in_nin_missing_and_null_rules() {
         let c = col_with(&[
-            (Value::object_from(vec![("a".into(), Value::i64(1))]), Some(Value::str("one"))),
-            (Value::object_from(vec![("a".into(), Value::Null)]), Some(Value::str("null"))),
+            (
+                Value::object_from(vec![("a".into(), Value::i64(1))]),
+                Some(Value::str("one")),
+            ),
+            (
+                Value::object_from(vec![("a".into(), Value::Null)]),
+                Some(Value::str("null")),
+            ),
             (Value::object_from(vec![]), Some(Value::str("absent"))),
         ]);
         let f = |list: Vec<Value>| obj(&[("a", obj(&[("$in", Value::array_from(list))]))]);
@@ -1455,7 +1581,11 @@ mod tests {
             sorted_ids(&c.find(f(vec![Value::Null])).to_list()),
             vec!["absent".to_string(), "null".to_string()]
         );
-        assert_eq!(c.find(f(vec![Value::i64(1)])).count(), 1, "missing never matches $in [1]");
+        assert_eq!(
+            c.find(f(vec![Value::i64(1)])).count(),
+            1,
+            "missing never matches $in [1]"
+        );
         assert_eq!(
             sorted_ids(&c.find(f(vec![Value::Null, Value::i64(1)])).to_list()),
             vec!["absent".to_string(), "null".to_string(), "one".to_string()]
@@ -1483,7 +1613,13 @@ mod tests {
             Value::object_from(vec![("a".into(), Value::i64(1))]),
             Some(Value::str("x")),
         )]);
-        for bad in [Value::i64(1), Value::str("a"), Value::object(), Value::bool(true), Value::Null] {
+        for bad in [
+            Value::i64(1),
+            Value::str("a"),
+            Value::object(),
+            Value::bool(true),
+            Value::Null,
+        ] {
             assert_eq!(
                 c.find(obj(&[("a", obj(&[("$in", bad.clone())]))])).count(),
                 0,
@@ -1510,17 +1646,30 @@ mod tests {
                 )]),
                 Some(Value::str("arr")),
             ),
-            (Value::object_from(vec![("tags".into(), Value::str("moo"))]), Some(Value::str("plain"))),
+            (
+                Value::object_from(vec![("tags".into(), Value::str("moo"))]),
+                Some(Value::str("plain")),
+            ),
         ]);
         // $in ["moo"]: only the scalar doc; the array [moo, loud] is not == "moo"
         assert_eq!(
-            c.find(obj(&[("tags", obj(&[("$in", Value::array_from(vec![Value::str("moo")]))]))])).count(),
+            c.find(obj(&[(
+                "tags",
+                obj(&[("$in", Value::array_from(vec![Value::str("moo")]))])
+            )]))
+            .count(),
             1
         );
         // the whole array IS a member when listed exactly
-        let list = vec![Value::array_from(vec![Value::str("moo"), Value::str("loud")])];
+        let list = vec![Value::array_from(vec![
+            Value::str("moo"),
+            Value::str("loud"),
+        ])];
         assert_eq!(
-            sorted_ids(&c.find(obj(&[("tags", obj(&[("$in", Value::array_from(list))]))])).to_list()),
+            sorted_ids(
+                &c.find(obj(&[("tags", obj(&[("$in", Value::array_from(list))]))]))
+                    .to_list()
+            ),
             vec!["arr".to_string()]
         );
     }
@@ -1529,19 +1678,28 @@ mod tests {
     fn in_matches_object_list_members_exactly() {
         // object list members are exact subdocument equality (not subset)
         let c = col_with(&[
-            (Value::object_from(vec![("addr".into(), obj(&[("city".into(), Value::str("NYC"))]))]), Some(Value::str("nyc"))),
-            (Value::object_from(vec![("addr".into(), obj(&[("city".into(), Value::str("LA"))]))]), Some(Value::str("la"))),
+            (
+                Value::object_from(vec![("addr".into(), obj(&[("city", Value::str("NYC"))]))]),
+                Some(Value::str("nyc")),
+            ),
+            (
+                Value::object_from(vec![("addr".into(), obj(&[("city", Value::str("LA"))]))]),
+                Some(Value::str("la")),
+            ),
             (
                 Value::object_from(vec![(
                     "addr".into(),
-                    obj(&[("city".into(), Value::str("NYC")), ("zip".into(), Value::str("10001"))]),
+                    obj(&[("city", Value::str("NYC")), ("zip", Value::str("10001"))]),
                 )]),
                 Some(Value::str("nyczip")),
             ),
         ]);
         let list = vec![obj(&[("city", Value::str("NYC"))])];
         assert_eq!(
-            sorted_ids(&c.find(obj(&[("addr", obj(&[("$in", Value::array_from(list))]))])).to_list()),
+            sorted_ids(
+                &c.find(obj(&[("addr", obj(&[("$in", Value::array_from(list))]))]))
+                    .to_list()
+            ),
             vec!["nyc".to_string()]
         );
     }
@@ -1549,19 +1707,33 @@ mod tests {
     #[test]
     fn in_nin_combine_with_other_operators() {
         let c = col_with(&[
-            (Value::object_from(vec![("age".into(), Value::i64(25))]), Some(Value::str("a25"))),
-            (Value::object_from(vec![("age".into(), Value::i64(30))]), Some(Value::str("a30"))),
-            (Value::object_from(vec![("age".into(), Value::i64(33))]), Some(Value::str("a33"))),
-            (Value::object_from(vec![("age".into(), Value::i64(40))]), Some(Value::str("a40"))),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(25))]),
+                Some(Value::str("a25")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(30))]),
+                Some(Value::str("a30")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(33))]),
+                Some(Value::str("a33")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(40))]),
+                Some(Value::str("a40")),
+            ),
         ]);
         // $in AND $ne
         let f = obj(&[(
             "age",
-            obj(&[(
-                "$in",
-                Value::array_from(vec![Value::i64(25), Value::i64(30), Value::i64(40)]),
-            ),
-                ("$ne", Value::i64(30))]),
+            obj(&[
+                (
+                    "$in",
+                    Value::array_from(vec![Value::i64(25), Value::i64(30), Value::i64(40)]),
+                ),
+                ("$ne", Value::i64(30)),
+            ]),
         )]);
         assert_eq!(
             sorted_ids(&c.find(f).to_list()),
@@ -1570,11 +1742,13 @@ mod tests {
         // $in AND range
         let f = obj(&[(
             "age",
-            obj(&[(
-                "$in",
-                Value::array_from(vec![Value::i64(30), Value::i64(33), Value::i64(40)]),
-            ),
-                ("$gte", Value::i64(33))]),
+            obj(&[
+                (
+                    "$in",
+                    Value::array_from(vec![Value::i64(30), Value::i64(33), Value::i64(40)]),
+                ),
+                ("$gte", Value::i64(33)),
+            ]),
         )]);
         assert_eq!(
             sorted_ids(&c.find(f).to_list()),
@@ -1583,17 +1757,22 @@ mod tests {
         // $nin AND range
         let f = obj(&[(
             "age",
-            obj(&[(
-                "$nin",
-                Value::array_from(vec![Value::i64(30), Value::i64(33)]),
-            ),
-                ("$gte", Value::i64(30))]),
+            obj(&[
+                (
+                    "$nin",
+                    Value::array_from(vec![Value::i64(30), Value::i64(33)]),
+                ),
+                ("$gte", Value::i64(30)),
+            ]),
         )]);
         assert_eq!(sorted_ids(&c.find(f).to_list()), vec!["a40".to_string()]);
         // an unknown operator kills the condition even next to $in
         let f = obj(&[(
             "age",
-            obj(&[("$in", Value::array_from(vec![Value::i64(30)])), ("$bogus", Value::i64(1))]),
+            obj(&[
+                ("$in", Value::array_from(vec![Value::i64(30)])),
+                ("$bogus", Value::i64(1)),
+            ]),
         )]);
         assert_eq!(c.find(f).count(), 0);
     }
@@ -1601,37 +1780,85 @@ mod tests {
     #[test]
     fn in_drives_index_and_matches_scan() {
         let mut c = col_with(&[
-            (Value::object_from(vec![("age".into(), Value::i64(25))]), Some(Value::str("a"))),
-            (Value::object_from(vec![("age".into(), Value::i64(30))]), Some(Value::str("b"))),
-            (Value::object_from(vec![("age".into(), Value::i64(30))]), Some(Value::str("b2"))),
-            (Value::object_from(vec![("age".into(), Value::i64(40))]), Some(Value::str("c"))),
-            (Value::object_from(vec![("age".into(), Value::f64(40.0))]), Some(Value::str("c2"))),
-            (Value::object_from(vec![("age".into(), Value::Null)]), Some(Value::str("n"))),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(25))]),
+                Some(Value::str("a")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(30))]),
+                Some(Value::str("b")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(30))]),
+                Some(Value::str("b2")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(40))]),
+                Some(Value::str("c")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::f64(40.0))]),
+                Some(Value::str("c2")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::Null)]),
+                Some(Value::str("n")),
+            ),
             (Value::object_from(vec![]), Some(Value::str("m"))), // field absent
         ]);
         let filters: Vec<Value> = vec![
-            obj(&[("age", obj(&[("$in", Value::array_from(vec![Value::i64(40), Value::i64(25)]))]))]), // cross-numeric point set
-            obj(&[("age", obj(&[("$in", Value::array_from(vec![Value::Null, Value::i64(40)]))]))]), // Null slice: explicit null + absent
+            obj(&[(
+                "age",
+                obj(&[(
+                    "$in",
+                    Value::array_from(vec![Value::i64(40), Value::i64(25)]),
+                )]),
+            )]), // cross-numeric point set
+            obj(&[(
+                "age",
+                obj(&[("$in", Value::array_from(vec![Value::Null, Value::i64(40)]))]),
+            )]), // Null slice: explicit null + absent
             obj(&[("age", obj(&[("$in", Value::array_from(Vec::new()))]))]), // empty list
             obj(&[(
                 "age",
-                obj(&[("$in", Value::array_from(vec![Value::i64(30)])), ("$ne", Value::i64(30))]),
+                obj(&[
+                    ("$in", Value::array_from(vec![Value::i64(30)])),
+                    ("$ne", Value::i64(30)),
+                ]),
             )]), // points drive, $ne verifies everything out
             obj(&[(
                 "age",
-                obj(&[("$in", Value::array_from(vec![Value::i64(30)])), ("$gte", Value::i64(30))]),
+                obj(&[
+                    ("$in", Value::array_from(vec![Value::i64(30)])),
+                    ("$gte", Value::i64(30)),
+                ]),
             )]),
             obj(&[(
                 "age",
-                obj(&[("$nin", Value::array_from(vec![Value::i64(25), Value::i64(30)]))]),
+                obj(&[(
+                    "$nin",
+                    Value::array_from(vec![Value::i64(25), Value::i64(30)]),
+                )]),
             )]), // bare $nin: plain scan
-            obj(&[("age", obj(&[("$nin", Value::array_from(vec![Value::Null]))]))]), // $nin [null]: present non-null only
             obj(&[(
                 "age",
-                obj(&[("$nin", Value::array_from(vec![Value::i64(30)])), ("$gte", Value::i64(30))]),
+                obj(&[("$nin", Value::array_from(vec![Value::Null]))]),
+            )]), // $nin [null]: present non-null only
+            obj(&[(
+                "age",
+                obj(&[
+                    ("$nin", Value::array_from(vec![Value::i64(30)])),
+                    ("$gte", Value::i64(30)),
+                ]),
             )]), // bound drives, $nin verifies
             obj(&[("age", obj(&[("$in", Value::i64(30))]))]), // non-array operand: scan, matches nothing
-            obj(&[("age", obj(&[("$in", Value::array_from(vec![Value::i64(30)])), ("$bogus", Value::i64(1))]))]),
+            obj(&[(
+                "age",
+                obj(&[
+                    ("$in", Value::array_from(vec![Value::i64(30)])),
+                    ("$bogus", Value::i64(1)),
+                ]),
+            )]),
         ];
         let scan: Vec<Vec<String>> = filters
             .iter()
@@ -1648,12 +1875,23 @@ mod tests {
         // spot-check the interesting ones
         assert_eq!(
             sorted_ids(&c.find(filters[1].clone()).to_list()),
-            vec!["c".to_string(), "c2".to_string(), "m".to_string(), "n".to_string()],
+            vec![
+                "c".to_string(),
+                "c2".to_string(),
+                "m".to_string(),
+                "n".to_string()
+            ],
             "$in [null, 40]: explicit null + absent + the cross-numeric 40s"
         );
         assert_eq!(
             sorted_ids(&c.find(filters[6].clone()).to_list()),
-            vec!["a".to_string(), "b".to_string(), "b2".to_string(), "c".to_string(), "c2".to_string()],
+            vec![
+                "a".to_string(),
+                "b".to_string(),
+                "b2".to_string(),
+                "c".to_string(),
+                "c2".to_string()
+            ],
             "$nin [null]: only present non-null docs"
         );
     }
@@ -1661,10 +1899,22 @@ mod tests {
     #[test]
     fn in_index_results_come_in_index_order() {
         let mut c = col_with(&[
-            (Value::object_from(vec![("age".into(), Value::i64(40))]), Some(Value::str("c"))),
-            (Value::object_from(vec![("age".into(), Value::i64(25))]), Some(Value::str("a"))),
-            (Value::object_from(vec![("age".into(), Value::i64(30))]), Some(Value::str("b"))),
-            (Value::object_from(vec![("age".into(), Value::i64(30))]), Some(Value::str("b2"))),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(40))]),
+                Some(Value::str("c")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(25))]),
+                Some(Value::str("a")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(30))]),
+                Some(Value::str("b")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(30))]),
+                Some(Value::str("b2")),
+            ),
         ]);
         c.create_index("age").unwrap();
         // list order (40, 25, 30) must not leak into the result: index order
@@ -1672,10 +1922,16 @@ mod tests {
         let got = c
             .find(obj(&[(
                 "age",
-                obj(&[("$in", Value::array_from(vec![Value::i64(40), Value::i64(25), Value::i64(30)]))]),
+                obj(&[(
+                    "$in",
+                    Value::array_from(vec![Value::i64(40), Value::i64(25), Value::i64(30)]),
+                )]),
             )]))
             .to_list();
-        let order: Vec<&str> = got.iter().map(|d| d.get("_id").unwrap().as_str().unwrap()).collect();
+        let order: Vec<&str> = got
+            .iter()
+            .map(|d| d.get("_id").unwrap().as_str().unwrap())
+            .collect();
         assert_eq!(order, vec!["a", "b", "b2", "c"]);
     }
 
@@ -1683,9 +1939,16 @@ mod tests {
     fn mixed_operator_and_plain_keys_is_not_an_operator_object() {
         // {"$gte":25, "x":1} has a non-$ key -> treated as a direct value,
         // which matches nothing (no doc field literally equals that object).
-        let c = col_with(&[(Value::object_from(vec![("age".into(), Value::i64(30))]), Some(Value::str("x")))]);
+        let c = col_with(&[(
+            Value::object_from(vec![("age".into(), Value::i64(30))]),
+            Some(Value::str("x")),
+        )]);
         assert_eq!(
-            c.find(obj(&[("age", obj(&[("$gte", Value::i64(25)), ("x", Value::i64(1))]))])).count(),
+            c.find(obj(&[(
+                "age",
+                obj(&[("$gte", Value::i64(25)), ("x", Value::i64(1))])
+            )]))
+            .count(),
             0
         );
     }
@@ -1695,19 +1958,49 @@ mod tests {
     /// 7 (high), explicit null (nul), field absent (mis).
     fn not_herd() -> Collection {
         col_with(&[
-            (Value::object_from(vec![("age".into(), Value::i64(3))]), Some(Value::str("low"))),
-            (Value::object_from(vec![("age".into(), Value::i64(5))]), Some(Value::str("mid5"))),
-            (Value::object_from(vec![("age".into(), Value::i64(7))]), Some(Value::str("high"))),
-            (Value::object_from(vec![("age".into(), Value::Null)]), Some(Value::str("nul"))),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(3))]),
+                Some(Value::str("low")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(5))]),
+                Some(Value::str("mid5")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(7))]),
+                Some(Value::str("high")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::Null)]),
+                Some(Value::str("nul")),
+            ),
             (Value::object_from(vec![]), Some(Value::str("mis"))),
         ])
     }
 
     fn cow_trio() -> Collection {
         col_with(&[
-            (Value::object_from(vec![("age".into(), Value::i64(5)), ("tag".into(), Value::str("loud"))]), Some(Value::str("moo"))),
-            (Value::object_from(vec![("age".into(), Value::i64(5)), ("tag".into(), Value::str("milky"))]), Some(Value::str("hilde"))),
-            (Value::object_from(vec![("age".into(), Value::i64(9)), ("tag".into(), Value::str("loud"))]), Some(Value::str("daisy"))),
+            (
+                Value::object_from(vec![
+                    ("age".into(), Value::i64(5)),
+                    ("tag".into(), Value::str("loud")),
+                ]),
+                Some(Value::str("moo")),
+            ),
+            (
+                Value::object_from(vec![
+                    ("age".into(), Value::i64(5)),
+                    ("tag".into(), Value::str("milky")),
+                ]),
+                Some(Value::str("hilde")),
+            ),
+            (
+                Value::object_from(vec![
+                    ("age".into(), Value::i64(9)),
+                    ("tag".into(), Value::str("loud")),
+                ]),
+                Some(Value::str("daisy")),
+            ),
         ])
     }
     /// `{"age": {"$not": {<op>: n}}}` — the common `$not` shape in the
@@ -1734,13 +2027,18 @@ mod tests {
             vec!["daisy".to_string(), "moo".to_string()]
         );
         // an empty list is vacuous truth: matches every document
-        assert_eq!(c.find(obj(&[("$and", Value::array_from(Vec::new()))])).count(), 3);
+        assert_eq!(
+            c.find(obj(&[("$and", Value::array_from(Vec::new()))]))
+                .count(),
+            3
+        );
         // a single element is just the sub-filter
         assert_eq!(
             c.find(obj(&[(
                 "$and",
                 Value::array_from(vec![obj(&[("tag", Value::str("milky"))])]),
-            )])).count(),
+            )]))
+            .count(),
             1
         );
     }
@@ -1760,7 +2058,11 @@ mod tests {
             vec!["daisy".to_string(), "hilde".to_string()]
         );
         // an empty list matches nothing
-        assert_eq!(c.find(obj(&[("$or", Value::array_from(Vec::new()))])).count(), 0);
+        assert_eq!(
+            c.find(obj(&[("$or", Value::array_from(Vec::new()))]))
+                .count(),
+            0
+        );
         // a non-object element fails only its own disjunct
         let f = obj(&[(
             "$or",
@@ -1772,8 +2074,20 @@ mod tests {
     #[test]
     fn and_or_sub_filters_use_full_filter_semantics_and_nest() {
         let c = col_with(&[
-            (Value::object_from(vec![("age".into(), Value::i64(5)), ("tag".into(), Value::str("loud"))]), Some(Value::str("moo"))),
-            (Value::object_from(vec![("age".into(), Value::i64(2)), ("tag".into(), Value::str("loud"))]), Some(Value::str("bess"))),
+            (
+                Value::object_from(vec![
+                    ("age".into(), Value::i64(5)),
+                    ("tag".into(), Value::str("loud")),
+                ]),
+                Some(Value::str("moo")),
+            ),
+            (
+                Value::object_from(vec![
+                    ("age".into(), Value::i64(2)),
+                    ("tag".into(), Value::str("loud")),
+                ]),
+                Some(Value::str("bess")),
+            ),
         ]);
         // $or of [$and(range combo + tag), $in]: the inner $and gives moo
         // (5 <= age < 10 AND loud), the $in disjunct gives bess (age == 2).
@@ -1783,11 +2097,17 @@ mod tests {
                 obj(&[(
                     "$and",
                     Value::array_from(vec![
-                        obj(&[("age", obj(&[("$gte", Value::i64(5)), ("$lt", Value::i64(10))]))]),
+                        obj(&[(
+                            "age",
+                            obj(&[("$gte", Value::i64(5)), ("$lt", Value::i64(10))]),
+                        )]),
                         obj(&[("tag", Value::str("loud"))]),
                     ]),
                 )]),
-                obj(&[("age", obj(&[("$in", Value::array_from(vec![Value::i64(2)]))]))]),
+                obj(&[(
+                    "age",
+                    obj(&[("$in", Value::array_from(vec![Value::i64(2)]))]),
+                )]),
             ]),
         )]);
         assert_eq!(
@@ -1800,11 +2120,14 @@ mod tests {
     fn and_or_malformed_shapes_match_nothing() {
         let c = not_herd();
         let bad = [
-            obj(&[("$and", Value::i64(5))]), // non-array operand
+            obj(&[("$and", Value::i64(5))]),   // non-array operand
             obj(&[("$and", Value::object())]), // an object is not an array
             obj(&[("$and", Value::str("x"))]),
             obj(&[("$and", Value::array_from(vec![Value::i64(5)]))]), // non-object element
-            obj(&[("$and", Value::array_from(vec![Value::array_from(Vec::new())]))]),
+            obj(&[(
+                "$and",
+                Value::array_from(vec![Value::array_from(Vec::new())]),
+            )]),
             obj(&[("$or", Value::i64(5))]), // non-array operand
             obj(&[("$or", Value::object_from(vec![]))]), // empty list: no disjunct
         ];
@@ -1830,7 +2153,11 @@ mod tests {
     #[test]
     fn top_level_not_is_malformed_and_matches_nothing() {
         let c = not_herd();
-        assert_eq!(c.find(obj(&[("$not", obj(&[("$gt", Value::i64(5))]))])).count(), 0);
+        assert_eq!(
+            c.find(obj(&[("$not", obj(&[("$gt", Value::i64(5))]))]))
+                .count(),
+            0
+        );
         assert_eq!(c.find(obj(&[("$not", Value::i64(5))])).count(), 0);
         assert_eq!(c.find(obj(&[("$not", Value::object())])).count(), 0);
     }
@@ -1843,7 +2170,12 @@ mod tests {
         let f = not_age("$gt", 5);
         assert_eq!(
             sorted_ids(&c.find(f).to_list()),
-            vec!["low".to_string(), "mid5".to_string(), "mis".to_string(), "nul".to_string()]
+            vec![
+                "low".to_string(),
+                "mid5".to_string(),
+                "mis".to_string(),
+                "nul".to_string()
+            ]
         );
         // {$not: {$ne: 5}} == "not (age != 5)": the presence rules flip too —
         // missing ($ne is true when absent) and null (null != 5) are excluded,
@@ -1854,7 +2186,12 @@ mod tests {
         let f = not_age("$eq", 5);
         assert_eq!(
             sorted_ids(&c.find(f).to_list()),
-            vec!["high".to_string(), "low".to_string(), "mis".to_string(), "nul".to_string()]
+            vec![
+                "high".to_string(),
+                "low".to_string(),
+                "mis".to_string(),
+                "nul".to_string()
+            ]
         );
     }
 
@@ -1872,24 +2209,44 @@ mod tests {
         // 5 passes both -> inner true -> excluded; null/missing fail $gt -> in.
         assert_eq!(
             sorted_ids(&c.find(f).to_list()),
-            vec!["high".to_string(), "low".to_string(), "mis".to_string(), "nul".to_string()]
+            vec![
+                "high".to_string(),
+                "low".to_string(),
+                "mis".to_string(),
+                "nul".to_string()
+            ]
         );
     }
 
     #[test]
     fn not_combines_with_other_operators_by_and() {
         let c = col_with(&[
-            (Value::object_from(vec![("age".into(), Value::i64(2))]), Some(Value::str("a2"))),
-            (Value::object_from(vec![("age".into(), Value::i64(3))]), Some(Value::str("a3"))),
-            (Value::object_from(vec![("age".into(), Value::i64(4))]), Some(Value::str("a4"))),
-            (Value::object_from(vec![("age".into(), Value::i64(5))]), Some(Value::str("a5"))),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(2))]),
+                Some(Value::str("a2")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(3))]),
+                Some(Value::str("a3")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(4))]),
+                Some(Value::str("a4")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(5))]),
+                Some(Value::str("a5")),
+            ),
             (Value::object_from(vec![]), Some(Value::str("mis"))),
         ]);
         // {$gte: 3} AND {$not: {$gte: 5}} == 3 <= age < 5, presence required.
         let inner = obj(&[("$gte", Value::i64(5))]);
         let cond = obj(&[("$gte", Value::i64(3)), ("$not", inner)]);
         let f = obj(&[("age", cond)]);
-        assert_eq!(sorted_ids(&c.find(f).to_list()), vec!["a3".to_string(), "a4".to_string()]);
+        assert_eq!(
+            sorted_ids(&c.find(f).to_list()),
+            vec!["a3".to_string(), "a4".to_string()]
+        );
     }
 
     #[test]
@@ -1908,14 +2265,22 @@ mod tests {
             obj(&[("age", inner_empty)]),
         ];
         for (i, f) in bad.iter().enumerate() {
-            assert_eq!(c.find(f.clone()).count(), 0, "non-operator-object $not operand {i}");
+            assert_eq!(
+                c.find(f.clone()).count(),
+                0,
+                "non-operator-object $not operand {i}"
+            );
         }
         // Degenerate corner: the operand IS an operator object, but the inner
         // expression matches nothing (unknown operator) -> its negation
         // matches everything. Consistent with "negation of the whole
         // expression", recorded as the spec's contract.
         let f = not_age("$bogus", 1);
-        assert_eq!(c.find(f).count(), 5, "negation of a nothing-matching expression");
+        assert_eq!(
+            c.find(f).count(),
+            5,
+            "negation of a nothing-matching expression"
+        );
     }
 
     #[test]
@@ -1924,10 +2289,17 @@ mod tests {
         // top-level {"$and": ...} filter (the key is reserved), and a literal
         // "$not" field likewise (top-level $not is always malformed).
         let c = col_with(&[(
-            Value::object_from(vec![("$and".to_string(), Value::i64(7)), ("x".into(), Value::i64(1))]),
+            Value::object_from(vec![
+                ("$and".to_string(), Value::i64(7)),
+                ("x".into(), Value::i64(1)),
+            ]),
             Some(Value::str("lit")),
         )]);
-        assert_eq!(c.find(obj(&[("$and", Value::i64(7))])).count(), 0, "non-array $and operand");
+        assert_eq!(
+            c.find(obj(&[("$and", Value::i64(7))])).count(),
+            0,
+            "non-array $and operand"
+        );
         let c2 = col_with(&[(
             Value::object_from(vec![("$not".to_string(), Value::i64(7))]),
             Some(Value::str("lit2")),
@@ -1938,24 +2310,45 @@ mod tests {
     #[test]
     fn logical_plans_andor_not() {
         let mut c = col_with(&[
-            (Value::object_from(vec![("age".into(), Value::i64(40))]), Some(Value::str("c"))),
-            (Value::object_from(vec![("age".into(), Value::i64(25))]), Some(Value::str("a"))),
-            (Value::object_from(vec![("age".into(), Value::i64(30))]), Some(Value::str("b"))),
-            (Value::object_from(vec![("age".into(), Value::i64(30))]), Some(Value::str("b2"))),
-            (Value::object_from(vec![("age".into(), Value::i64(45))]), Some(Value::str("d"))),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(40))]),
+                Some(Value::str("c")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(25))]),
+                Some(Value::str("a")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(30))]),
+                Some(Value::str("b")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(30))]),
+                Some(Value::str("b2")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(45))]),
+                Some(Value::str("d")),
+            ),
         ]);
         c.create_index("age").unwrap();
 
         // a $and element with a bound drives
         let sub = obj(&[("age", obj(&[("$gte", Value::i64(30))]))]);
         let q = c.find(obj(&[("$and", Value::array_from(vec![sub]))]));
-        assert!(matches!(q.plan(), Plan::Index { .. }), "a $and element with a bound must drive");
+        assert!(
+            matches!(q.plan(), Plan::Index { .. }),
+            "a $and element with a bound must drive"
+        );
 
         // nested $and is looked through
         let leaf = obj(&[("age", Value::i64(30))]);
         let inner_and = obj(&[("$and", Value::array_from(vec![leaf]))]);
         let q = c.find(obj(&[("$and", Value::array_from(vec![inner_and]))]));
-        assert!(matches!(q.plan(), Plan::Index { .. }), "nested $and must be looked through");
+        assert!(
+            matches!(q.plan(), Plan::Index { .. }),
+            "nested $and must be looked through"
+        );
 
         // a top-level $or never drives (a union no condition's candidates contain)
         let d1 = obj(&[("age", Value::i64(30))]);
@@ -1971,35 +2364,59 @@ mod tests {
         let lt = obj(&[("$lt", Value::i64(45))]);
         let cond = obj(&[("$not", lt), ("$gte", Value::i64(30))]);
         let q = c.find(obj(&[("age", cond)]));
-        assert!(matches!(q.plan(), Plan::Index { .. }), "a bound next to $not drives");
+        assert!(
+            matches!(q.plan(), Plan::Index { .. }),
+            "a bound next to $not drives"
+        );
 
         // a malformed $and operand cannot drive; a later top-level key can
-        let q = c.find(obj(&[(
-            "$and",
-            Value::i64(5),
-        ), ("age", obj(&[("$gte", Value::i64(30))]))]));
-        assert!(matches!(q.plan(), Plan::Index { .. }), "malformed $and is skipped");
+        let q = c.find(obj(&[
+            ("$and", Value::i64(5)),
+            ("age", obj(&[("$gte", Value::i64(30))])),
+        ]));
+        assert!(
+            matches!(q.plan(), Plan::Index { .. }),
+            "malformed $and is skipped"
+        );
 
         // a malformed $and element cannot drive
         let q = c.find(obj(&[("$and", Value::array_from(vec![Value::i64(5)]))]));
         assert!(matches!(q.plan(), Plan::Scan));
 
         // a top-level $not is skipped; a later bound drives
-        let q = c.find(obj(&[(
-            "$not",
-            obj(&[("$gt", Value::i64(5))]),
-        ), ("age", obj(&[("$gte", Value::i64(30))]))]));
-        assert!(matches!(q.plan(), Plan::Index { .. }), "top-level $not is skipped");
+        let q = c.find(obj(&[
+            ("$not", obj(&[("$gt", Value::i64(5))])),
+            ("age", obj(&[("$gte", Value::i64(30))])),
+        ]));
+        assert!(
+            matches!(q.plan(), Plan::Index { .. }),
+            "top-level $not is skipped"
+        );
     }
 
     #[test]
     fn logical_filters_index_driven_match_full_scan() {
         let mut c = col_with(&[
-            (Value::object_from(vec![("age".into(), Value::i64(40))]), Some(Value::str("c"))),
-            (Value::object_from(vec![("age".into(), Value::i64(25))]), Some(Value::str("a"))),
-            (Value::object_from(vec![("age".into(), Value::i64(30))]), Some(Value::str("b"))),
-            (Value::object_from(vec![("age".into(), Value::i64(30))]), Some(Value::str("b2"))),
-            (Value::object_from(vec![("age".into(), Value::i64(45))]), Some(Value::str("d"))),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(40))]),
+                Some(Value::str("c")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(25))]),
+                Some(Value::str("a")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(30))]),
+                Some(Value::str("b")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(30))]),
+                Some(Value::str("b2")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(45))]),
+                Some(Value::str("d")),
+            ),
             (Value::object_from(vec![]), Some(Value::str("m"))), // age absent
         ]);
         // Lift every filter into a named binding so the bracket count stays
@@ -2020,18 +2437,21 @@ mod tests {
         let lt40op = obj(&[("$lt", Value::i64(40))]);
         let bound_not = obj(&[("age", obj(&[("$not", lt40op), ("$gte", Value::i64(30))]))]);
         let filters: Vec<Value> = vec![
-            and_range, // 30 <= age < 45
-            nested_and, // nested $and: age < 40
-            or_point, // $or never drives: age == 30 | age == 45
-            or_not, // $not inside an $or disjunct
-            not_lt45, // bare $not: not(age < 45)
-            bound_not, // bound drives, $not verifies: 30 <= age, age >= 40
+            and_range,                                                // 30 <= age < 45
+            nested_and,                                               // nested $and: age < 40
+            or_point,                        // $or never drives: age == 30 | age == 45
+            or_not,                          // $not inside an $or disjunct
+            not_lt45,                        // bare $not: not(age < 45)
+            bound_not,                       // bound drives, $not verifies: 30 <= age, age >= 40
             obj(&[("$and", Value::i64(5))]), // malformed operand
             obj(&[("$or", Value::array_from(Vec::new()))]), // empty list
             obj(&[("$and", Value::array_from(vec![Value::i64(1)]))]), // non-object element
             obj(&[("$not", obj(&[("$gt", Value::i64(5))]))]), // top-level $not
         ];
-        let scan: Vec<Vec<String>> = filters.iter().map(|f| sorted_ids(&c.find(f.clone()).to_list())).collect();
+        let scan: Vec<Vec<String>> = filters
+            .iter()
+            .map(|f| sorted_ids(&c.find(f.clone()).to_list()))
+            .collect();
         c.create_index("age").unwrap();
         for (i, f) in filters.iter().enumerate() {
             assert_eq!(
@@ -2041,29 +2461,72 @@ mod tests {
             );
         }
         // spot-check the answers (derived from the fixture)
-        assert_eq!(scan[0], vec!["b".to_string(), "b2".to_string(), "c".to_string()]);
-        assert_eq!(scan[1], vec!["a".to_string(), "b".to_string(), "b2".to_string()]);
-        assert_eq!(scan[2], vec!["b".to_string(), "b2".to_string(), "d".to_string()]);
+        assert_eq!(
+            scan[0],
+            vec!["b".to_string(), "b2".to_string(), "c".to_string()]
+        );
+        assert_eq!(
+            scan[1],
+            vec!["a".to_string(), "b".to_string(), "b2".to_string()]
+        );
+        assert_eq!(
+            scan[2],
+            vec!["b".to_string(), "b2".to_string(), "d".to_string()]
+        );
         assert_eq!(
             scan[3],
-            vec!["a".to_string(), "b".to_string(), "b2".to_string(), "c".to_string(), "d".to_string(), "m".to_string()],
+            vec![
+                "a".to_string(),
+                "b".to_string(),
+                "b2".to_string(),
+                "c".to_string(),
+                "d".to_string(),
+                "m".to_string()
+            ],
             "not(age < 30) covers 30..45 plus the absent doc; age 25 adds a -> all"
         );
-        assert_eq!(scan[4], vec!["d".to_string(), "m".to_string()], "not(age < 45): 45 and absent");
-        assert_eq!(scan[5], vec!["c".to_string(), "d".to_string()], "30 <= age < 40: only 40 and 45");
-        for i in 6..=9 {
-            assert_eq!(scan[i], Vec::<String>::new(), "malformed shape {i} matches nothing");
+        assert_eq!(
+            scan[4],
+            vec!["d".to_string(), "m".to_string()],
+            "not(age < 45): 45 and absent"
+        );
+        assert_eq!(
+            scan[5],
+            vec!["c".to_string(), "d".to_string()],
+            "30 <= age < 40: only 40 and 45"
+        );
+        for (i, v) in scan.iter().enumerate().skip(6) {
+            assert_eq!(
+                v,
+                &Vec::<String>::new(),
+                "malformed shape {i} matches nothing"
+            );
         }
     }
 
     #[test]
     fn and_drives_index_results_come_in_index_order() {
         let mut c = col_with(&[
-            (Value::object_from(vec![("age".into(), Value::i64(40))]), Some(Value::str("c"))),
-            (Value::object_from(vec![("age".into(), Value::i64(25))]), Some(Value::str("a"))),
-            (Value::object_from(vec![("age".into(), Value::i64(30))]), Some(Value::str("b"))),
-            (Value::object_from(vec![("age".into(), Value::i64(30))]), Some(Value::str("b2"))),
-            (Value::object_from(vec![("age".into(), Value::i64(45))]), Some(Value::str("d"))),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(40))]),
+                Some(Value::str("c")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(25))]),
+                Some(Value::str("a")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(30))]),
+                Some(Value::str("b")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(30))]),
+                Some(Value::str("b2")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(45))]),
+                Some(Value::str("d")),
+            ),
         ]);
         c.create_index("age").unwrap();
         // the $and element's bound drives: index order (value ascending per
@@ -2078,7 +2541,10 @@ mod tests {
             .iter()
             .map(|d| d.get("_id").unwrap().as_str().unwrap().to_string())
             .collect();
-        assert_eq!(order, vec!["b".to_string(), "b2".to_string(), "c".to_string()]);
+        assert_eq!(
+            order,
+            vec!["b".to_string(), "b2".to_string(), "c".to_string()]
+        );
         // first() on the index path is the smallest matching value
         let only = obj(&[("age", obj(&[("$gte", Value::i64(30))]))]);
         let first = c
@@ -2088,16 +2554,24 @@ mod tests {
         assert_eq!(first.get("_id"), Some(&Value::str("b")));
     }
 
-
     // -- element operator ($exists) ------------------------------------------
 
     /// A field `n` that is present (non-null) on two docs, explicitly `null`
     /// on one, and absent on one — the `$exists` presence matrix.
     fn exists_herd() -> Collection {
         col_with(&[
-            (Value::object_from(vec![("n".into(), Value::i64(1))]), Some(Value::str("one"))),
-            (Value::object_from(vec![("n".into(), Value::i64(5))]), Some(Value::str("five"))),
-            (Value::object_from(vec![("n".into(), Value::Null)]), Some(Value::str("nul"))),
+            (
+                Value::object_from(vec![("n".into(), Value::i64(1))]),
+                Some(Value::str("one")),
+            ),
+            (
+                Value::object_from(vec![("n".into(), Value::i64(5))]),
+                Some(Value::str("five")),
+            ),
+            (
+                Value::object_from(vec![("n".into(), Value::Null)]),
+                Some(Value::str("nul")),
+            ),
             (Value::object_from(vec![]), Some(Value::str("abs"))),
         ])
     }
@@ -2138,7 +2612,12 @@ mod tests {
         all.sort();
         assert_eq!(
             all,
-            vec!["abs".to_string(), "five".to_string(), "nul".to_string(), "one".to_string()]
+            vec![
+                "abs".to_string(),
+                "five".to_string(),
+                "nul".to_string(),
+                "one".to_string()
+            ]
         );
     }
 
@@ -2164,7 +2643,11 @@ mod tests {
         ];
         for (i, bad) in bads.iter().enumerate() {
             let f = obj(&[("n", obj(&[("$exists", bad.clone())]))]);
-            assert_eq!(c.find(f).count(), 0, "non-boolean $exists operand {i} matches nothing");
+            assert_eq!(
+                c.find(f).count(),
+                0,
+                "non-boolean $exists operand {i} matches nothing"
+            );
         }
     }
 
@@ -2207,7 +2690,10 @@ mod tests {
         // ...and the results are identical with and without the index
         let t = sorted_ids(&c.find(exists_cond("n", true)).to_list());
         let f = sorted_ids(&c.find(exists_cond("n", false)).to_list());
-        assert_eq!(t, vec!["five".to_string(), "nul".to_string(), "one".to_string()]);
+        assert_eq!(
+            t,
+            vec!["five".to_string(), "nul".to_string(), "one".to_string()]
+        );
         assert_eq!(f, vec!["abs".to_string()]);
     }
 
@@ -2241,7 +2727,10 @@ mod tests {
                 Some(Value::str("c")),
             ),
             // non-array field: a plain scalar, never matches $elemMatch
-            (Value::object_from(vec![("sizes".into(), Value::i64(5))]), Some(Value::str("d"))),
+            (
+                Value::object_from(vec![("sizes".into(), Value::i64(5))]),
+                Some(Value::str("d")),
+            ),
             // missing field
             (Value::object_from(vec![]), Some(Value::str("e"))),
             // subdocuments: instock = [{qty:3,wh:A},{qty:8,wh:A}]
@@ -2249,8 +2738,8 @@ mod tests {
                 Value::object_from(vec![(
                     "instock".into(),
                     Value::array_from(vec![
-                        obj(&[("qty".into(), Value::i64(3)), ("warehouse".into(), Value::str("A"))]),
-                        obj(&[("qty".into(), Value::i64(8)), ("warehouse".into(), Value::str("A"))]),
+                        obj(&[("qty", Value::i64(3)), ("warehouse", Value::str("A"))]),
+                        obj(&[("qty", Value::i64(8)), ("warehouse", Value::str("A"))]),
                     ]),
                 )]),
                 Some(Value::str("sd1")),
@@ -2260,8 +2749,8 @@ mod tests {
                 Value::object_from(vec![(
                     "instock".into(),
                     Value::array_from(vec![obj(&[
-                        ("qty".into(), Value::i64(10)),
-                        ("warehouse".into(), Value::str("B"))
+                        ("qty", Value::i64(10)),
+                        ("warehouse", Value::str("B")),
                     ])]),
                 )]),
                 Some(Value::str("sd2")),
@@ -2307,13 +2796,19 @@ mod tests {
     fn elem_match_direct_value_matches_strings_and_objects() {
         // string elements: build a tag array doc
         let mut c = Collection::new("t");
-        c.insert(obj(&[("_id".into(), Value::str("x")), ("tags".into(), Value::array_from(vec![
-            Value::str("moo"),
-            Value::str("loud"),
-        ]))])).unwrap();
-        c.insert(obj(&[("_id".into(), Value::str("y")), ("tags".into(), Value::array_from(vec![
-            Value::str("moo"),
-        ]))])).unwrap();
+        c.insert(obj(&[
+            ("_id", Value::str("x")),
+            (
+                "tags",
+                Value::array_from(vec![Value::str("moo"), Value::str("loud")]),
+            ),
+        ]))
+        .unwrap();
+        c.insert(obj(&[
+            ("_id", Value::str("y")),
+            ("tags", Value::array_from(vec![Value::str("moo")])),
+        ]))
+        .unwrap();
         // "loud" is only in x
         assert_eq!(
             sorted_ids(&c.find(em("tags", Value::str("loud"))).to_list()),
@@ -2333,7 +2828,10 @@ mod tests {
         // {$elemMatch: {$gt: 4}} -> an element > 4: b (5,9), c (7,7). d is not
         // an array so it never matches.
         assert_eq!(
-            sorted_ids(&c.find(em("sizes", obj(&[("$gt", Value::i64(4))]))).to_list()),
+            sorted_ids(
+                &c.find(em("sizes", obj(&[("$gt", Value::i64(4))])))
+                    .to_list()
+            ),
             vec!["b".to_string(), "c".to_string()]
         );
         // {$elemMatch: {$gte: 7, $lt: 8}} -> an element in [7,8): only c
@@ -2363,7 +2861,10 @@ mod tests {
         // {$elemMatch: {qty: {$gt: 5}, warehouse: "A"}}: an element with qty
         // > 5 AND warehouse A -> only sd1 (qty 8, wh A). sd2's single element
         // has wh B.
-        let sub = obj(&[("qty", obj(&[("$gt", Value::i64(5))])), ("warehouse", Value::str("A"))]);
+        let sub = obj(&[
+            ("qty", obj(&[("$gt", Value::i64(5))])),
+            ("warehouse", Value::str("A")),
+        ]);
         assert_eq!(
             sorted_ids(&c.find(em("instock", sub)).to_list()),
             vec!["sd1".to_string()]
@@ -2386,7 +2887,10 @@ mod tests {
         assert_eq!(c.find(em("instock", sub)).count(), 0);
         // an array of scalars with a subdocument filter: elements aren't
         // objects -> doc_matches fails on each -> no match
-        assert_eq!(c.find(em("sizes", obj(&[("qty", Value::i64(1))]))).count(), 0);
+        assert_eq!(
+            c.find(em("sizes", obj(&[("qty", Value::i64(1))]))).count(),
+            0
+        );
     }
 
     #[test]
@@ -2399,7 +2903,11 @@ mod tests {
             obj(&[("$gt", Value::i64(0))]),
             obj(&[("x", Value::i64(1))]),
         ] {
-            assert_eq!(c.find(em("missing", crit.clone())).count(), 0, "missing field");
+            assert_eq!(
+                c.find(em("missing", crit.clone())).count(),
+                0,
+                "missing field"
+            );
         }
         // d's scalar sizes=5 has no elements: only the three real arrays
         // a/b/c match $gt 0 (d and the missing e never match)
@@ -2415,16 +2923,26 @@ mod tests {
         // AND a $elemMatch condition with a second direct-value condition on a
         // separate field: build a small col with both `sizes` and `top`.
         let mut c = Collection::new("t");
-        c.insert(obj(&[(
-            "_id".into(),
-            Value::str("p"),
-        ), ("sizes".into(), Value::array_from(vec![Value::i64(6)])), ("top".into(), Value::i64(9))])).unwrap();
-        c.insert(obj(&[(
-            "_id".into(),
-            Value::str("q"),
-        ), ("sizes".into(), Value::array_from(vec![Value::i64(6)])), ("top".into(), Value::i64(2))])).unwrap();
+        c.insert(obj(&[
+            ("_id", Value::str("p")),
+            ("sizes", Value::array_from(vec![Value::i64(6)])),
+            ("top", Value::i64(9)),
+        ]))
+        .unwrap();
+        c.insert(obj(&[
+            ("_id", Value::str("q")),
+            ("sizes", Value::array_from(vec![Value::i64(6)])),
+            ("top", Value::i64(2)),
+        ]))
+        .unwrap();
         // {sizes: {$elemMatch: {$gt: 4}}, top: 9} -> only p
-        let f = obj(&[("sizes", obj(&[("$elemMatch", obj(&[("$gt", Value::i64(4))]))])), ("top", Value::i64(9))]);
+        let f = obj(&[
+            (
+                "sizes",
+                obj(&[("$elemMatch", obj(&[("$gt", Value::i64(4))]))]),
+            ),
+            ("top", Value::i64(9)),
+        ]);
         assert_eq!(sorted_ids(&c.find(f).to_list()), vec!["p".to_string()]);
     }
 
@@ -2435,14 +2953,20 @@ mod tests {
         // a bare $elemMatch contributes no bound -> the plan is a full scan
         // even though `sizes` is indexed (the index stores the whole array as
         // one value; the elements are not indexed)
-        assert!(matches!(c.find(em("sizes", Value::i64(4))).plan(), Plan::Scan));
+        assert!(matches!(
+            c.find(em("sizes", Value::i64(4))).plan(),
+            Plan::Scan
+        ));
         assert!(matches!(
             c.find(em("sizes", obj(&[("$gt", Value::i64(4))]))).plan(),
             Plan::Scan
         ));
         // ...and the results are identical with and without the index
         let direct = sorted_ids(&c.find(em("sizes", Value::i64(4))).to_list());
-        let op = sorted_ids(&c.find(em("sizes", obj(&[("$gt", Value::i64(4))]))).to_list());
+        let op = sorted_ids(
+            &c.find(em("sizes", obj(&[("$gt", Value::i64(4))])))
+                .to_list(),
+        );
         assert_eq!(direct, vec!["a".to_string()]);
         assert_eq!(op, vec!["b".to_string(), "c".to_string()]);
     }
@@ -2451,9 +2975,21 @@ mod tests {
 
     #[test]
     fn non_object_filter_matches_nothing() {
-        let c = col_with(&[(Value::object_from(vec![("a".into(), Value::i64(1))]), Some(Value::str("x")))]);
-        for bad in [Value::i64(5), Value::str("x"), Value::array(), Value::bool(true)] {
-            assert_eq!(c.find(bad).count(), 0, "non-object filter must match nothing");
+        let c = col_with(&[(
+            Value::object_from(vec![("a".into(), Value::i64(1))]),
+            Some(Value::str("x")),
+        )]);
+        for bad in [
+            Value::i64(5),
+            Value::str("x"),
+            Value::array(),
+            Value::bool(true),
+        ] {
+            assert_eq!(
+                c.find(bad).count(),
+                0,
+                "non-object filter must match nothing"
+            );
         }
     }
 
@@ -2463,12 +2999,30 @@ mod tests {
     /// (hilde and moo tie at 5 — the `_id` tiebreak is observable.)
     fn sort_herd() -> Collection {
         col_with(&[
-            (Value::object_from(vec![("age".into(), Value::i64(2))]), Some(Value::str("bess"))),
-            (Value::object_from(vec![("age".into(), Value::i64(5))]), Some(Value::str("moo"))),
-            (Value::object_from(vec![("age".into(), Value::i64(5))]), Some(Value::str("hilde"))),
-            (Value::object_from(vec![("age".into(), Value::i64(9))]), Some(Value::str("daisy"))),
-            (Value::object_from(vec![("age".into(), Value::i64(3))]), Some(Value::str("butch"))),
-            (Value::object_from(vec![("age".into(), Value::i64(7))]), Some(Value::str("clara"))),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(2))]),
+                Some(Value::str("bess")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(5))]),
+                Some(Value::str("moo")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(5))]),
+                Some(Value::str("hilde")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(9))]),
+                Some(Value::str("daisy")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(3))]),
+                Some(Value::str("butch")),
+            ),
+            (
+                Value::object_from(vec![("age".into(), Value::i64(7))]),
+                Some(Value::str("clara")),
+            ),
         ])
     }
 
@@ -2521,10 +3075,19 @@ mod tests {
     #[test]
     fn sort_missing_field_sorts_like_null() {
         let c = col_with(&[
-            (Value::object_from(vec![("v".into(), Value::i64(5))]), Some(Value::str("five"))),
-            (Value::object_from(vec![("v".into(), Value::Null)]), Some(Value::str("nul"))),
+            (
+                Value::object_from(vec![("v".into(), Value::i64(5))]),
+                Some(Value::str("five")),
+            ),
+            (
+                Value::object_from(vec![("v".into(), Value::Null)]),
+                Some(Value::str("nul")),
+            ),
             (Value::object_from(vec![]), Some(Value::str("abs"))), // field absent
-            (Value::object_from(vec![("v".into(), Value::i64(1))]), Some(Value::str("one"))),
+            (
+                Value::object_from(vec![("v".into(), Value::i64(1))]),
+                Some(Value::str("one")),
+            ),
         ]);
         // Null < Number: both the explicit-null doc and the absent doc sort
         // first (ties by `_id`), then the numbers
@@ -2535,7 +3098,15 @@ mod tests {
             .iter()
             .map(|d| d.get("_id").unwrap().as_str().unwrap().to_string())
             .collect();
-        assert_eq!(asc, vec!["abs".to_string(), "nul".to_string(), "one".to_string(), "five".to_string()]);
+        assert_eq!(
+            asc,
+            vec![
+                "abs".to_string(),
+                "nul".to_string(),
+                "one".to_string(),
+                "five".to_string()
+            ]
+        );
         // descending: the Null slice lands last
         let desc: Vec<String> = c
             .find(Value::object())
@@ -2544,16 +3115,36 @@ mod tests {
             .iter()
             .map(|d| d.get("_id").unwrap().as_str().unwrap().to_string())
             .collect();
-        assert_eq!(desc, vec!["five".to_string(), "one".to_string(), "nul".to_string(), "abs".to_string()]);
+        assert_eq!(
+            desc,
+            vec![
+                "five".to_string(),
+                "one".to_string(),
+                "nul".to_string(),
+                "abs".to_string()
+            ]
+        );
     }
 
     #[test]
     fn sort_is_cross_numeric_total_order() {
         let c = col_with(&[
-            (Value::object_from(vec![("n".into(), Value::f64(2.5))]), Some(Value::str("f25"))),
-            (Value::object_from(vec![("n".into(), Value::i64(2))]), Some(Value::str("i2"))),
-            (Value::object_from(vec![("n".into(), Value::i64(-1))]), Some(Value::str("n1"))),
-            (Value::object_from(vec![("n".into(), Value::str("z"))]), Some(Value::str("s"))),
+            (
+                Value::object_from(vec![("n".into(), Value::f64(2.5))]),
+                Some(Value::str("f25")),
+            ),
+            (
+                Value::object_from(vec![("n".into(), Value::i64(2))]),
+                Some(Value::str("i2")),
+            ),
+            (
+                Value::object_from(vec![("n".into(), Value::i64(-1))]),
+                Some(Value::str("n1")),
+            ),
+            (
+                Value::object_from(vec![("n".into(), Value::str("z"))]),
+                Some(Value::str("s")),
+            ),
         ]);
         let asc: Vec<String> = c
             .find(Value::object())
@@ -2562,7 +3153,15 @@ mod tests {
             .iter()
             .map(|d| d.get("_id").unwrap().as_str().unwrap().to_string())
             .collect();
-        assert_eq!(asc, vec!["n1".to_string(), "i2".to_string(), "f25".to_string(), "s".to_string()]);
+        assert_eq!(
+            asc,
+            vec![
+                "n1".to_string(),
+                "i2".to_string(),
+                "f25".to_string(),
+                "s".to_string()
+            ]
+        );
         let desc: Vec<String> = c
             .find(Value::object())
             .sort("n", true)
@@ -2570,7 +3169,15 @@ mod tests {
             .iter()
             .map(|d| d.get("_id").unwrap().as_str().unwrap().to_string())
             .collect();
-        assert_eq!(desc, vec!["s".to_string(), "f25".to_string(), "i2".to_string(), "n1".to_string()]);
+        assert_eq!(
+            desc,
+            vec![
+                "s".to_string(),
+                "f25".to_string(),
+                "i2".to_string(),
+                "n1".to_string()
+            ]
+        );
     }
 
     #[test]
@@ -2580,7 +3187,13 @@ mod tests {
         let f5 = f(&[("$gte", Value::i64(5))]); // matches: hilde 5, moo 5, clara 7, daisy 9
         // sorted pipeline: 5(hilde) 5(moo) 7(clara) 9(daisy)
         assert_eq!(
-            sorted_ids(&c.find(f5.clone()).sort("age", false).skip(1).limit(2).to_list()),
+            sorted_ids(
+                &c.find(f5.clone())
+                    .sort("age", false)
+                    .skip(1)
+                    .limit(2)
+                    .to_list()
+            ),
             vec!["clara".to_string(), "moo".to_string()]
         );
         // skip alone
@@ -2594,12 +3207,29 @@ mod tests {
             vec!["hilde".to_string(), "moo".to_string()]
         );
         // skip past the end: empty
-        assert!(c.find(f5.clone()).sort("age", false).skip(4).to_list().is_empty());
-        assert!(c.find(f5.clone()).sort("age", false).skip(5).to_list().is_empty());
+        assert!(
+            c.find(f5.clone())
+                .sort("age", false)
+                .skip(4)
+                .to_list()
+                .is_empty()
+        );
+        assert!(
+            c.find(f5.clone())
+                .sort("age", false)
+                .skip(5)
+                .to_list()
+                .is_empty()
+        );
         // limit 0 = no limit (the Mongo cursor convention)
         assert_eq!(
             sorted_ids(&c.find(f5.clone()).sort("age", false).limit(0).to_list()),
-            vec!["clara".to_string(), "daisy".to_string(), "hilde".to_string(), "moo".to_string()]
+            vec![
+                "clara".to_string(),
+                "daisy".to_string(),
+                "hilde".to_string(),
+                "moo".to_string()
+            ]
         );
         // unsorted: skip/limit apply in scan (storage) order — the exact
         // doc is unspecified, but the count is deterministic
@@ -2622,7 +3252,14 @@ mod tests {
             .collect();
         assert_eq!(
             asc,
-            vec!["bess".to_string(), "butch".to_string(), "hilde".to_string(), "moo".to_string(), "clara".to_string(), "daisy".to_string()]
+            vec![
+                "bess".to_string(),
+                "butch".to_string(),
+                "hilde".to_string(),
+                "moo".to_string(),
+                "clara".to_string(),
+                "daisy".to_string()
+            ]
         );
         // descending: reverse index walk
         let desc: Vec<String> = c
@@ -2634,7 +3271,14 @@ mod tests {
             .collect();
         assert_eq!(
             desc,
-            vec!["daisy".to_string(), "clara".to_string(), "moo".to_string(), "hilde".to_string(), "butch".to_string(), "bess".to_string()]
+            vec![
+                "daisy".to_string(),
+                "clara".to_string(),
+                "moo".to_string(),
+                "hilde".to_string(),
+                "butch".to_string(),
+                "bess".to_string()
+            ]
         );
         // indexed sort with a filter: candidates verified in sort order
         let f = obj(&[("age", obj(&[("$gte", Value::i64(5))]))]);
@@ -2651,7 +3295,10 @@ mod tests {
         // a limit that reaches the equal-value slice shows the tiebreak:
         // descending reverses the tie too, so moo (id > hilde) comes first
         let got: Vec<String> = c
-            .find(obj(&[("age", obj(&[("$gte", Value::i64(5)), ("$lt", Value::i64(9))]))]))
+            .find(obj(&[(
+                "age",
+                obj(&[("$gte", Value::i64(5)), ("$lt", Value::i64(9))]),
+            )]))
             .sort("age", true)
             .limit(3)
             .to_list()
@@ -2659,13 +3306,19 @@ mod tests {
             .map(|d| d.get("_id").unwrap().as_str().unwrap().to_string())
             .collect();
         // 7(clara) first, then the 5-tie reversed: moo before hilde
-        assert_eq!(got, vec!["clara".to_string(), "moo".to_string(), "hilde".to_string()]);
+        assert_eq!(
+            got,
+            vec!["clara".to_string(), "moo".to_string(), "hilde".to_string()]
+        );
     }
 
     #[test]
     fn sort_on_indexed_field_matches_unindexed_sort() {
         let mut c = sort_herd();
-        let f = obj(&[("age", obj(&[("$gte", Value::i64(3)), ("$lt", Value::i64(9))]))]);
+        let f = obj(&[(
+            "age",
+            obj(&[("$gte", Value::i64(3)), ("$lt", Value::i64(9))]),
+        )]);
         let asc_scan = c.find(f.clone()).sort("age", false).to_list();
         let desc_scan = c.find(f.clone()).sort("age", true).to_list();
         c.create_index("age").unwrap();
@@ -2699,7 +3352,14 @@ mod tests {
         assert_eq!(c.find(f.clone()).sort("age", false).count(), 4);
         assert_eq!(c.find(f.clone()).sort("age", false).skip(2).count(), 2);
         assert_eq!(c.find(f.clone()).sort("age", false).limit(2).count(), 2);
-        assert_eq!(c.find(f.clone()).sort("age", false).skip(1).limit(2).count(), 2);
+        assert_eq!(
+            c.find(f.clone())
+                .sort("age", false)
+                .skip(1)
+                .limit(2)
+                .count(),
+            2
+        );
         assert_eq!(c.find(f.clone()).skip(6).count(), 0);
         assert_eq!(c.find(f.clone()).skip(2).limit(10).count(), 2);
         assert_eq!(c.find(f).limit(0).count(), 4, "limit(0) is no limit");
@@ -2714,11 +3374,7 @@ mod tests {
         assert!(!q.sort_descending());
         assert_eq!(q.skip_count(), 0);
         assert_eq!(q.limit_count(), 0);
-        let q = c
-            .find(all.clone())
-            .sort("age", true)
-            .skip(2)
-            .limit(5);
+        let q = c.find(all.clone()).sort("age", true).skip(2).limit(5);
         assert_eq!(q.sort_field(), Some("age"));
         assert!(q.sort_descending());
         assert_eq!(q.skip_count(), 2);
@@ -2734,9 +3390,18 @@ mod tests {
     #[test]
     fn eager_and_lazy_terminals_agree() {
         let c = col_with(&[
-            (Value::object_from(vec![("s".into(), Value::str("hit"))]), Some(Value::str("h1"))),
-            (Value::object_from(vec![("s".into(), Value::str("no"))]), Some(Value::str("n1"))),
-            (Value::object_from(vec![("s".into(), Value::str("hit"))]), Some(Value::str("h2"))),
+            (
+                Value::object_from(vec![("s".into(), Value::str("hit"))]),
+                Some(Value::str("h1")),
+            ),
+            (
+                Value::object_from(vec![("s".into(), Value::str("no"))]),
+                Some(Value::str("n1")),
+            ),
+            (
+                Value::object_from(vec![("s".into(), Value::str("hit"))]),
+                Some(Value::str("h2")),
+            ),
         ]);
         let f = || obj(&[("s", Value::str("hit"))]);
         assert_eq!(c.count(f()), 2);
@@ -2749,9 +3414,10 @@ mod tests {
 
     #[test]
     fn first_and_find_one_are_consistent_and_present() {
-        let c = col_with(&[
-            (Value::object_from(vec![("s".into(), Value::str("only"))]), Some(Value::str("only"))),
-        ]);
+        let c = col_with(&[(
+            Value::object_from(vec![("s".into(), Value::str("only"))]),
+            Some(Value::str("only")),
+        )]);
         let f = obj(&[("s", Value::str("only"))]);
         let via_find = c.find(f.clone()).first().unwrap();
         let via_find_one = c.find_one(f).unwrap();
@@ -2760,10 +3426,7 @@ mod tests {
             Some(&Value::str("only")),
             "both terminals return the matching doc"
         );
-        assert_eq!(
-            via_find_one.get("_id"),
-            Some(&Value::str("only")),
-        );
+        assert_eq!(via_find_one.get("_id"), Some(&Value::str("only")),);
     }
 
     #[test]

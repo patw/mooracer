@@ -3,6 +3,41 @@
 All notable changes to MooRacer are documented here. This is the initial public
 release; entries follow a Keep-a-Changelog-style format.
 
+## [Unreleased]
+
+### Added
+
+- **Wire-level index management.** A new `IndexCmd` command
+  (`create_index` / `drop_index` / `create_vector_index` /
+  `drop_vector_index` / `create_text_index` / `drop_text_index`) lets clients
+  create and drop value, vector, and text indexes at runtime over the wire.
+  Previously the wire protocol had **no index-management command** — indexes
+  were server-side only, so vector / text / hybrid search could only be enabled
+  by reaching into the server (via the `mooracer-devserver` env-var setup).
+  Now a client can declare the index types it needs without any server-side
+  configuration, which makes the search surface usable end-to-end.
+
+  Details: the `IndexCmd`/`IndexRes` union variants and the `IndexKind` op-code
+  enum are **additive** — existing on-wire discriminants are unchanged, so this
+  is backward compatible. `_id` cannot be dropped (`PrimaryIndex`) and dropping
+  a nonexistent index is `NoIndex`. This is exposed in both the Rust and Python
+  clients; see [`examples/complex_usage.py`](examples/complex_usage.py), which
+  now creates its own indexes instead of relying on the dev server.
+### Packaging & CI/CD
+
+- **Pip-installable Python client.** `client-python/` now carries a
+  `pyproject.toml` (setuptools), a package `README`, and a `LICENSE`; the
+  checked-in `wire/` subpackage ships as package-data and the `flatbuffers`
+  runtime dependency is declared. `pip install ./client-python` (or `-e`) now
+  works, and a `py3-none-any` wheel + sdist build cleanly.
+- **CI.** `.github/workflows/ci.yml` gates on `cargo fmt --check`, `cargo clippy
+  --all-targets -- -D warnings`, `cargo test`, a release build, and the Python
+  `pytest` suite (which boots a live devserver). The Rust codebase was made
+  format- and clippy-clean so these gates pass.
+- **Release.** `.github/workflows/release.yml` builds the pure-Python sdist +
+  wheel on a `v*` tag, verifies it, publishes to PyPI via trusted publishing
+  (GitHub OIDC), and cuts a GitHub Release.
+
 ## [0.1.0] - 2026-09-04
 
 Initial public release of **MooRacer** — an in-memory, network-accessible

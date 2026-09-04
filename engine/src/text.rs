@@ -60,7 +60,11 @@ pub fn tokenize(s: &str) -> Vec<String> {
             }
             let mut tok = Vec::with_capacity(i - start);
             for &c in &b[start..i] {
-                tok.push(if c.is_ascii_uppercase() { c.to_ascii_lowercase() } else { c });
+                tok.push(if c.is_ascii_uppercase() {
+                    c.to_ascii_lowercase()
+                } else {
+                    c
+                });
             }
             // Lowercased ASCII-only bytes — no UTF-8 validation needed.
             out.push(unsafe { String::from_utf8_unchecked(tok) });
@@ -175,11 +179,11 @@ fn step_1ab(w: &mut Vec<u8>) {
     // the reference): "feed" (m("f") = 0) is left untouched, "agreed"
     // loses its 'd' (EED → EE).
     if ends_with(w, "eed") {
-        if measure(&w, w.len() - 3) > 0 {
+        if measure(w, w.len() - 3) > 0 {
             w.pop();
         }
-    } else if (ends_with(w, "ed") && has_vowel(&w, w.len() - 2))
-        || (ends_with(w, "ing") && has_vowel(&w, w.len() - 3))
+    } else if (ends_with(w, "ed") && has_vowel(w, w.len() - 2))
+        || (ends_with(w, "ing") && has_vowel(w, w.len() - 3))
     {
         let strip = if ends_with(w, "ed") { 2 } else { 3 };
         w.truncate(w.len() - strip);
@@ -192,14 +196,14 @@ fn step_1ab(w: &mut Vec<u8>) {
             if matches!(w.last(), Some(&b'l') | Some(&b's') | Some(&b'z')) {
                 w.push(c);
             }
-        } else if measure(&w, w.len()) == 1 && cvc(w, k) {
+        } else if measure(w, w.len()) == 1 && cvc(w, k) {
             w.push(b'e');
         }
     }
 }
 
-fn step_1c(w: &mut Vec<u8>) {
-    if w.last() == Some(&b'y') && has_vowel(&w, w.len() - 1) {
+fn step_1c(w: &mut [u8]) {
+    if w.last() == Some(&b'y') && has_vowel(w, w.len() - 1) {
         let i = w.len() - 1;
         w[i] = b'i';
     }
@@ -209,7 +213,7 @@ fn step_1c(w: &mut Vec<u8>) {
 /// caller) AND the stem before `suffix` has m > 0, replace the suffix with
 /// `rep`.
 fn r_rule(w: &mut Vec<u8>, suffix: &str, rep: &str) -> bool {
-    if !ends_with(w, suffix) || measure(&w, w.len() - suffix.len()) == 0 {
+    if !ends_with(w, suffix) || measure(w, w.len() - suffix.len()) == 0 {
         return false;
     }
     w.truncate(w.len() - suffix.len());
@@ -219,16 +223,25 @@ fn r_rule(w: &mut Vec<u8>, suffix: &str, rep: &str) -> bool {
 
 /// Step 2: double-suffix → single-suffix, keyed on the penultimate letter
 /// (the reference's dispatch; longest suffix per key is tried first).
+///
+/// The rules are a dispatch where each condition is itself the side effect
+/// (mutates `w` and reports whether it applied); clippy's `if_same_then_else`
+/// flags the intentionally-empty branches.
+#[allow(clippy::if_same_then_else)]
 fn step_2(w: &mut Vec<u8>) {
-    if w.len() < 2 || measure(&w, w.len()) == 0 {
+    if w.len() < 2 || measure(w, w.len()) == 0 {
         return;
     }
     match w[w.len() - 2] {
         b'a' => {
-            if r_rule(w, "ational", "ate") {} else if r_rule(w, "tional", "tion") {}
+            if r_rule(w, "ational", "ate") {
+            } else if r_rule(w, "tional", "tion") {
+            }
         }
         b'c' => {
-            if r_rule(w, "enci", "ence") {} else if r_rule(w, "anci", "ance") {}
+            if r_rule(w, "enci", "ence") {
+            } else if r_rule(w, "anci", "ance") {
+            }
         }
         b'e' => {
             r_rule(w, "izer", "ize");
@@ -286,7 +299,7 @@ fn step_3(w: &mut Vec<u8>) {
         ("ness", ""),
     ];
     for (suffix, rep) in RULES {
-        if ends_with(w, suffix) && measure(&w, w.len() - suffix.len()) > 0 {
+        if ends_with(w, suffix) && measure(w, w.len() - suffix.len()) > 0 {
             w.truncate(w.len() - suffix.len());
             w.extend_from_slice(rep.as_bytes());
             return;
@@ -302,18 +315,22 @@ fn step_4(w: &mut Vec<u8>) {
     }
     let suffix = match w[w.len() - 2] {
         b'a' => ends_with(w, "al").then_some("al"),
-        b'c' => if ends_with(w, "ance") {
-            Some("ance")
-        } else {
-            ends_with(w, "ence").then_some("ence")
-        },
+        b'c' => {
+            if ends_with(w, "ance") {
+                Some("ance")
+            } else {
+                ends_with(w, "ence").then_some("ence")
+            }
+        }
         b'e' => ends_with(w, "er").then_some("er"),
         b'i' => ends_with(w, "ic").then_some("ic"),
-        b'l' => if ends_with(w, "able") {
-            Some("able")
-        } else {
-            ends_with(w, "ible").then_some("ible")
-        },
+        b'l' => {
+            if ends_with(w, "able") {
+                Some("able")
+            } else {
+                ends_with(w, "ible").then_some("ible")
+            }
+        }
         b'n' => {
             if ends_with(w, "ant") {
                 Some("ant")
@@ -336,20 +353,22 @@ fn step_4(w: &mut Vec<u8>) {
             }
         }
         b's' => ends_with(w, "ism").then_some("ism"),
-        b't' => if ends_with(w, "ate") {
-            Some("ate")
-        } else {
-            ends_with(w, "iti").then_some("iti")
-        },
+        b't' => {
+            if ends_with(w, "ate") {
+                Some("ate")
+            } else {
+                ends_with(w, "iti").then_some("iti")
+            }
+        }
         b'u' => ends_with(w, "ous").then_some("ous"),
         b'v' => ends_with(w, "ive").then_some("ive"),
         b'z' => ends_with(w, "ize").then_some("ize"),
         _ => None,
     };
-    if let Some(suffix) = suffix {
-        if measure(&w, w.len() - suffix.len()) > 1 {
-            w.truncate(w.len() - suffix.len());
-        }
+    if let Some(suffix) = suffix
+        && measure(w, w.len() - suffix.len()) > 1
+    {
+        w.truncate(w.len() - suffix.len());
     }
 }
 
@@ -357,13 +376,13 @@ fn step_4(w: &mut Vec<u8>) {
 /// a final 'll' when m > 1.
 fn step_5(w: &mut Vec<u8>) {
     if w.last() == Some(&b'e') {
-        let a = measure(&w, w.len());
+        let a = measure(w, w.len());
         let k = w.len() - 1;
         if a > 1 || (a == 1 && !cvc(w, k - 1)) {
             w.pop();
         }
     }
-    if w.last() == Some(&b'l') && doublec(w, w.len() - 1) && measure(&w, w.len()) > 1 {
+    if w.last() == Some(&b'l') && doublec(w, w.len() - 1) && measure(w, w.len()) > 1 {
         w.pop();
     }
 }
@@ -479,7 +498,10 @@ impl TextIndex {
         let runs = run_lengths(&toks);
         let mut terms = Vec::with_capacity(runs.len());
         for (term, tf) in runs {
-            self.postings.entry(term.to_string()).or_default().push((i, tf));
+            self.postings
+                .entry(term.to_string())
+                .or_default()
+                .push((i, tf));
             terms.push(term.to_string());
         }
         self.ids.push(id);
@@ -581,7 +603,8 @@ impl TextIndex {
             for &(di, tf) in list {
                 let f = tf as f64;
                 let dl = self.doc_lens[di] as f64;
-                score[di] += idf * (f * (BM25_K1 + 1.0)) / (f + BM25_K1 * (1.0 - BM25_B + BM25_B * dl / avgdl));
+                score[di] += idf * (f * (BM25_K1 + 1.0))
+                    / (f + BM25_K1 * (1.0 - BM25_B + BM25_B * dl / avgdl));
             }
         }
 
@@ -637,7 +660,10 @@ mod tests {
         assert_eq!(tokenize(""), Vec::<String>::new());
         assert_eq!(
             tokenize("moo-cow_moo"),
-            vec!["moo", "cow", "moo"].into_iter().map(String::from).collect::<Vec<String>>()
+            vec!["moo", "cow", "moo"]
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<String>>()
         );
         assert_eq!(
             tokenize("ÜBER-9"),
@@ -735,7 +761,11 @@ mod tests {
         assert!(text_tokens(None).is_none());
         assert!(text_tokens(Some(&Value::i64(5))).is_none());
         assert!(
-            text_tokens(Some(&Value::array_from(vec![Value::str("a"), Value::i64(1)]))).is_none()
+            text_tokens(Some(&Value::array_from(vec![
+                Value::str("a"),
+                Value::i64(1)
+            ])))
+            .is_none()
         );
         assert_eq!(text_tokens(Some(&Value::str(""))), Some(Vec::new()));
     }
@@ -754,7 +784,7 @@ mod tests {
         // doc; doc 2: never mentions "moo".
         ix.insert("d0".into(), vec!["moo".to_string(); 5]);
         let mut d1 = vec!["moo".to_string()];
-        d1.extend(std::iter::repeat("long".to_string()).take(50));
+        d1.extend(std::iter::repeat_n("long".to_string(), 50));
         ix.insert("d1".into(), d1);
         ix.insert("d2".into(), vec!["other".to_string()]);
         assert_eq!(ix.len(), 3);

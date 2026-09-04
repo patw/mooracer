@@ -24,6 +24,10 @@
 //!   indexed as `Null`). Field indexes are created with `create_index`
 //!   (backfilled from the current docs) and dropped with `drop_index`.
 
+// The prose above deliberately uses lazy-continuation (non-indented) list
+// items; clippy's `doc_lazy_continuation` is a noise-level style nit here.
+#![allow(clippy::doc_lazy_continuation)]
+
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -39,9 +43,9 @@ pub type HybridHit = (Value, f64);
 
 use crate::index::{FieldIndex, IndexSet};
 use crate::query::Query;
+use crate::text::{TextHit, TextIndex, text_tokens};
 use crate::value::Value;
-use crate::text::{text_tokens, TextHit, TextIndex};
-use crate::vector::{as_vector, is_vector, VectorIndex, VectorHit};
+use crate::vector::{VectorHit, VectorIndex, as_vector, is_vector};
 
 /// Length of a generated `_id`: 24 hex characters.
 pub const ID_LEN: usize = 24;
@@ -98,7 +102,11 @@ pub enum StoreError {
     /// A write to a document whose field `field` (vector-indexed) is present
     /// but is not a numeric array of the configured dimension `expected`
     /// (it held `found` elements, or none because it was not an array).
-    VectorDimMismatch { field: String, expected: usize, found: usize },
+    VectorDimMismatch {
+        field: String,
+        expected: usize,
+        found: usize,
+    },
 }
 
 impl fmt::Display for StoreError {
@@ -345,8 +353,16 @@ impl Collection {
     /// Errors: [`StoreError::NoIndex`] when `field` has no vector index. An
     /// empty index (or a wrong-length query) returns an empty vec, not an
     /// error.
-    pub fn vector_search(&self, field: &str, query: &[f32], limit: usize) -> Result<Vec<VectorHit>, StoreError> {
-        let ix = self.vector_indexes.get(field).ok_or_else(|| StoreError::NoIndex(field.to_string()))?;
+    pub fn vector_search(
+        &self,
+        field: &str,
+        query: &[f32],
+        limit: usize,
+    ) -> Result<Vec<VectorHit>, StoreError> {
+        let ix = self
+            .vector_indexes
+            .get(field)
+            .ok_or_else(|| StoreError::NoIndex(field.to_string()))?;
         let mut hits: Vec<VectorHit> = Vec::new();
         for (i, score) in ix.search(query, limit) {
             let id = ix.ids()[i].clone();
@@ -369,15 +385,15 @@ impl Collection {
             let Some(ix) = self.vector_indexes.get(field) else {
                 continue;
             };
-            if let Some(v) = doc.get(field) {
-                if !is_vector(Some(v), ix.dim()) {
-                    let found = v.as_array().map(|a| a.len()).unwrap_or(0);
-                    return Err(StoreError::VectorDimMismatch {
-                        field: field.clone(),
-                        expected: ix.dim(),
-                        found,
-                    });
-                }
+            if let Some(v) = doc.get(field)
+                && !is_vector(Some(v), ix.dim())
+            {
+                let found = v.as_array().map(|a| a.len()).unwrap_or(0);
+                return Err(StoreError::VectorDimMismatch {
+                    field: field.clone(),
+                    expected: ix.dim(),
+                    found,
+                });
             }
         }
         Ok(())
@@ -464,7 +480,12 @@ impl Collection {
     /// Errors: [`StoreError::NoIndex`] when `field` has no text index. An
     /// empty index (or a query with no tokens) returns an empty vec, not an
     /// error.
-    pub fn text_search(&self, field: &str, query: &str, limit: usize) -> Result<Vec<TextHit>, StoreError> {
+    pub fn text_search(
+        &self,
+        field: &str,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<TextHit>, StoreError> {
         let ix = self
             .text_indexes
             .get(field)
@@ -599,8 +620,7 @@ impl Collection {
                 });
             }
         }
-        let total_memory =
-            docs_memory + per_index.iter().map(|s| s.memory).sum::<usize>();
+        let total_memory = docs_memory + per_index.iter().map(|s| s.memory).sum::<usize>();
         CollectionStats {
             docs: self.docs.len(),
             docs_memory,
@@ -682,7 +702,11 @@ impl Collection {
         let Some(doc) = self.find(filter).first() else {
             return Err(StoreError::NoMatch);
         };
-        let id = doc.get(ID_KEY).and_then(Value::as_str).unwrap_or("").to_string();
+        let id = doc
+            .get(ID_KEY)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
         let new = apply_update(&doc, &update)?;
         match self.set_doc(&id, new)? {
             Some(_) => Ok(1),
@@ -712,7 +736,7 @@ impl Collection {
                 continue;
             };
             let new = apply_update(&doc, &update)?;
-            if matches!(self.set_doc(&id, new)?, Some(_)) {
+            if self.set_doc(&id, new)?.is_some() {
                 n += 1;
             }
         }
@@ -736,7 +760,11 @@ impl Collection {
         let Some(doc) = self.find(filter).first() else {
             return Err(StoreError::NoMatch);
         };
-        let id = doc.get(ID_KEY).and_then(Value::as_str).unwrap_or("").to_string();
+        let id = doc
+            .get(ID_KEY)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
         match self.set_doc(&id, new_doc)? {
             Some(_) => Ok(1),
             None => Err(StoreError::NoMatch), // vanished: cannot happen (single-thread write)
@@ -755,7 +783,11 @@ impl Collection {
         let Some(doc) = self.find(filter).first() else {
             return false;
         };
-        let id = doc.get(ID_KEY).and_then(Value::as_str).unwrap_or("").to_string();
+        let id = doc
+            .get(ID_KEY)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
         self.remove_doc(&id).is_some()
     }
 
@@ -777,7 +809,6 @@ impl Collection {
         }
         n
     }
-
 
     /// Remove a document by `_id` (the delete primitive — `delete_one` /
     /// `delete_many` build on this), removing all of its index entries.
@@ -1002,9 +1033,8 @@ impl<'a> Transaction<'a> {
         if self.failed {
             return Err(self.err.clone().unwrap());
         }
-        validate_update(&update).map_err(|e| {
+        validate_update(&update).inspect_err(|e| {
             self.fail(e.clone());
-            e
         })?;
         let matched = self
             .col
@@ -1018,9 +1048,8 @@ impl<'a> Transaction<'a> {
             let Some(doc) = self.col.get(&id).cloned() else {
                 continue;
             };
-            let new = apply_update(&doc, &update).map_err(|e| {
+            let new = apply_update(&doc, &update).inspect_err(|e| {
                 self.fail(e.clone());
-                e
             })?;
             self.put(id, new);
         }
@@ -1041,7 +1070,11 @@ impl<'a> Transaction<'a> {
             self.fail(e.clone());
             return Err(e);
         };
-        let id = doc.get(ID_KEY).and_then(Value::as_str).unwrap_or("").to_string();
+        let id = doc
+            .get(ID_KEY)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
         let new = match normalize_replace(&id, new_doc) {
             Ok(v) => v,
             Err(e) => {
@@ -1248,7 +1281,9 @@ fn normalize_doc(doc: Value) -> Result<(String, Value), StoreError> {
 /// non-numeric field) are doc-dependent and are caught by [`apply_update`].
 fn validate_update(update: &Value) -> Result<(), StoreError> {
     let Value::Object(entries) = update else {
-        return Err(StoreError::InvalidUpdate("update spec must be an object".into()));
+        return Err(StoreError::InvalidUpdate(
+            "update spec must be an object".into(),
+        ));
     };
     for (op, operand) in entries {
         let keys = match op.as_str() {
@@ -1257,13 +1292,17 @@ fn validate_update(update: &Value) -> Result<(), StoreError> {
                 _ => {
                     return Err(StoreError::InvalidUpdate(format!(
                         "{op} operand must be an object"
-                    )))
+                    )));
                 }
             },
             // `$unset` operand is either an object (keys) or an array of
             // string field names — both are checked per field below.
             "$unset" => continue,
-            _ => return Err(StoreError::InvalidUpdate(format!("unknown operator {op:?}"))),
+            _ => {
+                return Err(StoreError::InvalidUpdate(format!(
+                    "unknown operator {op:?}"
+                )));
+            }
         };
         for (k, _) in keys {
             if k.as_str() == ID_KEY {
@@ -1284,7 +1323,11 @@ fn validate_update(update: &Value) -> Result<(), StoreError> {
 fn apply_update(doc: &Value, update: &Value) -> Result<Value, StoreError> {
     let entries = match update {
         Value::Object(entries) => entries,
-        _ => return Err(StoreError::InvalidUpdate("update spec must be an object".into())),
+        _ => {
+            return Err(StoreError::InvalidUpdate(
+                "update spec must be an object".into(),
+            ));
+        }
     };
     let mut out = doc.clone();
     for (op, operand) in entries {
@@ -1293,7 +1336,9 @@ fn apply_update(doc: &Value, update: &Value) -> Result<Value, StoreError> {
             "$inc" => apply_inc(&mut out, operand)?,
             "$unset" => apply_unset(&mut out, operand)?,
             other => {
-                return Err(StoreError::InvalidUpdate(format!("unknown operator {other:?}")))
+                return Err(StoreError::InvalidUpdate(format!(
+                    "unknown operator {other:?}"
+                )));
             }
         }
     }
@@ -1306,7 +1351,9 @@ fn apply_update(doc: &Value, update: &Value) -> Result<Value, StoreError> {
 /// here so `apply_update` is safe standalone).
 fn apply_set(doc: &mut Value, operand: &Value) -> Result<(), StoreError> {
     let Value::Object(pairs) = operand else {
-        return Err(StoreError::InvalidUpdate("$set operand must be an object".into()));
+        return Err(StoreError::InvalidUpdate(
+            "$set operand must be an object".into(),
+        ));
     };
     for (k, v) in pairs {
         if k.as_str() == ID_KEY {
@@ -1326,11 +1373,15 @@ fn apply_set(doc: &mut Value, operand: &Value) -> Result<(), StoreError> {
 /// operand or operand value makes the result a float.
 fn apply_inc(doc: &mut Value, operand: &Value) -> Result<(), StoreError> {
     let Value::Object(pairs) = operand else {
-        return Err(StoreError::InvalidUpdate("$inc operand must be an object".into()));
+        return Err(StoreError::InvalidUpdate(
+            "$inc operand must be an object".into(),
+        ));
     };
     for (k, delta) in pairs {
         if k.as_str() == ID_KEY {
-            return Err(StoreError::InvalidUpdate("`_id` cannot be incremented".into()));
+            return Err(StoreError::InvalidUpdate(
+                "`_id` cannot be incremented".into(),
+            ));
         }
         // The numeric value of the operand (both as i64 when it is one, and
         // as f64 for the float math).
@@ -1340,7 +1391,7 @@ fn apply_inc(doc: &mut Value, operand: &Value) -> Result<(), StoreError> {
             _ => {
                 return Err(StoreError::InvalidUpdate(format!(
                     "$inc {k}: operand must be numeric"
-                )))
+                )));
             }
         };
         let d_i = delta.as_i64(); // Some(…) for an I64 operand, None for F64
@@ -1359,7 +1410,7 @@ fn apply_inc(doc: &mut Value, operand: &Value) -> Result<(), StoreError> {
                 return Err(StoreError::InvalidUpdate(format!(
                     "$inc {k}: cannot increment a non-numeric value ({})",
                     other.type_name()
-                )))
+                )));
             }
         };
         doc.set_path(k, new)
@@ -1384,7 +1435,7 @@ fn apply_unset(doc: &mut Value, operand: &Value) -> Result<(), StoreError> {
                         return Err(StoreError::InvalidUpdate(format!(
                             "$unset array element must be a string (got {})",
                             other.type_name()
-                        )))
+                        )));
                     }
                 }
             }
@@ -1393,7 +1444,7 @@ fn apply_unset(doc: &mut Value, operand: &Value) -> Result<(), StoreError> {
         _ => {
             return Err(StoreError::InvalidUpdate(
                 "$unset operand must be an object or an array of field names".into(),
-            ))
+            ));
         }
     };
     for k in &paths {
@@ -1431,7 +1482,10 @@ mod tests {
     fn assert_auto_id(id: &str) {
         assert_eq!(id.len(), ID_LEN, "auto id has {ID_LEN} chars: {id}");
         assert!(is_hex(id), "auto id is lowercase hex: {id}");
-        assert!(id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()));
+        assert!(
+            id.chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        );
     }
 
     // -- basics ---------------------------------------------------------------
@@ -1448,7 +1502,9 @@ mod tests {
     #[test]
     fn insert_with_explicit_id() {
         let mut c = Collection::new("t");
-        let id = c.insert(doc(&[("_id", Value::str("abc")), ("x", Value::i64(1))])).unwrap();
+        let id = c
+            .insert(doc(&[("_id", Value::str("abc")), ("x", Value::i64(1))]))
+            .unwrap();
         assert_eq!(id, "abc");
         assert_eq!(c.len(), 1);
         assert!(c.contains("abc"));
@@ -1481,7 +1537,8 @@ mod tests {
     #[test]
     fn user_supplied_id_position_is_preserved() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("a", Value::i64(1)), ("_id", Value::str("k"))])).unwrap();
+        c.insert(doc(&[("a", Value::i64(1)), ("_id", Value::str("k"))]))
+            .unwrap();
         let keys: Vec<_> = c.get("k").unwrap().keys().collect();
         assert_eq!(keys, vec!["a", "_id"]); // not reordered
     }
@@ -1490,7 +1547,9 @@ mod tests {
     fn duplicate_insert_errors() {
         let mut c = Collection::new("t");
         c.insert(doc(&[("_id", Value::str("dup"))])).unwrap();
-        let err = c.insert(doc(&[("_id", Value::str("dup")), ("v", Value::i64(2))])).unwrap_err();
+        let err = c
+            .insert(doc(&[("_id", Value::str("dup")), ("v", Value::i64(2))]))
+            .unwrap_err();
         assert_eq!(err, StoreError::DuplicateId("dup".into()));
         // store unchanged: still one doc, original content intact
         assert_eq!(c.len(), 1);
@@ -1533,7 +1592,10 @@ mod tests {
             assert!(c.contains(&id));
             let _ = i;
         }
-        let ids: std::collections::HashSet<&str> = c.iter().map(|d| d.get("_id").unwrap().as_str().unwrap()).collect();
+        let ids: std::collections::HashSet<&str> = c
+            .iter()
+            .map(|d| d.get("_id").unwrap().as_str().unwrap())
+            .collect();
         assert_eq!(ids.len(), 1000, "all generated ids unique");
         assert_eq!(c.len(), 1000);
     }
@@ -1612,18 +1674,23 @@ mod tests {
         let err = c
             .insert_many([
                 doc(&[("_id", Value::str("ok1"))]),
-                doc(&[("v", Value::i64(9))]), // auto id, fine
+                doc(&[("v", Value::i64(9))]),    // auto id, fine
                 doc(&[("_id", Value::i64(42))]), // invalid: not a string
             ])
             .unwrap_err();
         assert_eq!(err, StoreError::IdMustBeString);
-        assert!(c.is_empty(), "staging must not commit the earlier valid docs");
+        assert!(
+            c.is_empty(),
+            "staging must not commit the earlier valid docs"
+        );
     }
 
     #[test]
     fn insert_many_rejects_non_object_in_batch() {
         let mut c = Collection::new("t");
-        let err = c.insert_many([doc(&[("_id", Value::str("ok"))]), Value::i64(1)]).unwrap_err();
+        let err = c
+            .insert_many([doc(&[("_id", Value::str("ok"))]), Value::i64(1)])
+            .unwrap_err();
         assert_eq!(err, StoreError::NotAnObject);
         assert!(c.is_empty());
     }
@@ -1667,10 +1734,15 @@ mod tests {
     #[test]
     fn update_one_set_changes_field_and_refreshes_index() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("age", Value::i64(25))])).unwrap();
-        c.insert(doc(&[("_id", Value::str("b")), ("age", Value::i64(40))])).unwrap();
+        c.insert(doc(&[("_id", Value::str("a")), ("age", Value::i64(25))]))
+            .unwrap();
+        c.insert(doc(&[("_id", Value::str("b")), ("age", Value::i64(40))]))
+            .unwrap();
         c.create_index("age").unwrap();
-        let upd = uop(&[("$set", doc(&[("age", Value::i64(99)), ("tag", Value::str("moo"))]))]);
+        let upd = uop(&[(
+            "$set",
+            doc(&[("age", Value::i64(99)), ("tag", Value::str("moo"))]),
+        )]);
         let n = c.update_one(by_id("a"), upd).unwrap();
         assert_eq!(n, 1);
         assert_eq!(c.get("a").unwrap().get("age"), Some(&Value::i64(99)));
@@ -1689,8 +1761,12 @@ mod tests {
     #[test]
     fn update_one_no_match_is_an_error() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("age", Value::i64(1))])).unwrap();
-        let r = c.update_one(by_id("ghost"), uop(&[("$set", doc(&[("x", Value::i64(1))]))]));
+        c.insert(doc(&[("_id", Value::str("a")), ("age", Value::i64(1))]))
+            .unwrap();
+        let r = c.update_one(
+            by_id("ghost"),
+            uop(&[("$set", doc(&[("x", Value::i64(1))]))]),
+        );
         assert_eq!(r, Err(StoreError::NoMatch));
         // store untouched
         assert_eq!(c.get("a").unwrap().get("x"), None);
@@ -1699,8 +1775,12 @@ mod tests {
     #[test]
     fn update_one_set_creates_missing_and_nested_paths() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("top", Value::i64(1))])).unwrap();
-        let upd = uop(&[("$set", doc(&[("a.b.c", Value::i64(7)), ("tag", Value::str("x"))]))]);
+        c.insert(doc(&[("_id", Value::str("a")), ("top", Value::i64(1))]))
+            .unwrap();
+        let upd = uop(&[(
+            "$set",
+            doc(&[("a.b.c", Value::i64(7)), ("tag", Value::str("x"))]),
+        )]);
         c.update_one(by_id("a"), upd).unwrap();
         let d = c.get("a").unwrap();
         assert_eq!(d.get_path("a.b.c"), Some(&Value::i64(7)));
@@ -1713,19 +1793,31 @@ mod tests {
         c2.update_one(by_id("a"), upd).unwrap();
         assert_eq!(
             c2.get("a").unwrap().get("arr"),
-            Some(&Value::array_from(vec![Value::Null, Value::Null, Value::i64(5)]))
+            Some(&Value::array_from(vec![
+                Value::Null,
+                Value::Null,
+                Value::i64(5)
+            ]))
         );
     }
 
     #[test]
     fn update_one_inc_integer_float_and_create() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("n", Value::i64(5)), ("f", Value::f64(1.5))])).unwrap();
-        let upd = uop(&[("$inc", doc(&[
-            ("n", Value::i64(10)), // 5 + 10 = 15 (i64)
-            ("f", Value::i64(1)), // 1.5 + 1 = 2.5 (f64, cross-type)
-            ("m", Value::i64(3)), // missing -> created as 3
-        ]))]);
+        c.insert(doc(&[
+            ("_id", Value::str("a")),
+            ("n", Value::i64(5)),
+            ("f", Value::f64(1.5)),
+        ]))
+        .unwrap();
+        let upd = uop(&[(
+            "$inc",
+            doc(&[
+                ("n", Value::i64(10)), // 5 + 10 = 15 (i64)
+                ("f", Value::i64(1)),  // 1.5 + 1 = 2.5 (f64, cross-type)
+                ("m", Value::i64(3)),  // missing -> created as 3
+            ]),
+        )]);
         c.update_one(by_id("a"), upd).unwrap();
         let d = c.get("a").unwrap();
         assert_eq!(d.get("n"), Some(&Value::i64(15)));
@@ -1736,17 +1828,25 @@ mod tests {
     #[test]
     fn update_one_inc_overflow_widens_to_float() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("n", Value::i64(i64::MAX))])).unwrap();
+        c.insert(doc(&[
+            ("_id", Value::str("a")),
+            ("n", Value::i64(i64::MAX)),
+        ]))
+        .unwrap();
         let upd = uop(&[("$inc", doc(&[("n", Value::i64(1))]))]);
         c.update_one(by_id("a"), upd).unwrap();
         // i64::MAX + 1 overflows i64 -> widened to f64
-        assert_eq!(c.get("a").unwrap().get("n"), Some(&Value::f64(i64::MAX as f64 + 1.0)));
+        assert_eq!(
+            c.get("a").unwrap().get("n"),
+            Some(&Value::f64(i64::MAX as f64 + 1.0))
+        );
     }
 
     #[test]
     fn update_one_inc_on_non_numeric_is_an_error() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("s", Value::str("hi"))])).unwrap();
+        c.insert(doc(&[("_id", Value::str("a")), ("s", Value::str("hi"))]))
+            .unwrap();
         let r = c.update_one(by_id("a"), uop(&[("$inc", doc(&[("s", Value::i64(1))]))]));
         assert!(matches!(r, Err(StoreError::InvalidUpdate(_))));
         // store untouched on error
@@ -1756,7 +1856,8 @@ mod tests {
     #[test]
     fn update_one_inc_non_numeric_operand_is_an_error() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("n", Value::i64(1))])).unwrap();
+        c.insert(doc(&[("_id", Value::str("a")), ("n", Value::i64(1))]))
+            .unwrap();
         let r = c.update_one(by_id("a"), uop(&[("$inc", doc(&[("n", Value::str("x"))]))]));
         assert!(matches!(r, Err(StoreError::InvalidUpdate(_))));
         assert_eq!(c.get("a").unwrap().get("n"), Some(&Value::i64(1)));
@@ -1765,7 +1866,12 @@ mod tests {
     #[test]
     fn update_one_unset_object_and_array_forms() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("x", Value::i64(1)), ("y", Value::i64(2))])).unwrap();
+        c.insert(doc(&[
+            ("_id", Value::str("a")),
+            ("x", Value::i64(1)),
+            ("y", Value::i64(2)),
+        ]))
+        .unwrap();
         // object form: value ignored
         let upd = uop(&[("$unset", doc(&[("x", Value::str(""))]))]);
         c.update_one(by_id("a"), upd).unwrap();
@@ -1783,7 +1889,8 @@ mod tests {
     #[test]
     fn update_one_applies_operators_in_spec_order() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("n", Value::i64(5))])).unwrap();
+        c.insert(doc(&[("_id", Value::str("a")), ("n", Value::i64(5))]))
+            .unwrap();
         // $set then $inc on the same field: 5 -> set 10 -> +3 = 13
         let upd = uop(&[
             ("$set", doc(&[("n", Value::i64(10))])),
@@ -1803,7 +1910,8 @@ mod tests {
     #[test]
     fn update_rejects_id_mutation() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("n", Value::i64(1))])).unwrap();
+        c.insert(doc(&[("_id", Value::str("a")), ("n", Value::i64(1))]))
+            .unwrap();
         // $set / $inc / $unset of _id are all rejected; the doc keeps its _id
         for spec in [
             uop(&[("$set", doc(&[("_id", Value::str("zzz"))]))]),
@@ -1811,7 +1919,10 @@ mod tests {
             uop(&[("$unset", doc(&[("_id", Value::str(""))]))]),
         ] {
             let r = c.update_one(by_id("a"), spec);
-            assert!(matches!(r, Err(StoreError::InvalidUpdate(_))), "id mutation must fail");
+            assert!(
+                matches!(r, Err(StoreError::InvalidUpdate(_))),
+                "id mutation must fail"
+            );
             assert_eq!(c.get("a").unwrap().get("_id"), Some(&Value::str("a")));
         }
     }
@@ -1819,47 +1930,73 @@ mod tests {
     #[test]
     fn update_one_malformed_specs_are_errors() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("n", Value::i64(1))])).unwrap();
+        c.insert(doc(&[("_id", Value::str("a")), ("n", Value::i64(1))]))
+            .unwrap();
         let before = c.get("a").unwrap().clone();
         let bad = [
-            Value::i64(5), // non-object spec
-            Value::array_from(vec![Value::i64(1)]), // non-object spec
+            Value::i64(5),                                    // non-object spec
+            Value::array_from(vec![Value::i64(1)]),           // non-object spec
             uop(&[("$bogus", doc(&[("n", Value::i64(1))]))]), // unknown operator
-            uop(&[("$set", Value::i64(1))]), // $set non-object operand
-            uop(&[("$inc", Value::str("x"))]), // $inc non-object operand
-            uop(&[("$unset", Value::i64(1))]), // $unset neither object nor array
+            uop(&[("$set", Value::i64(1))]),                  // $set non-object operand
+            uop(&[("$inc", Value::str("x"))]),                // $inc non-object operand
+            uop(&[("$unset", Value::i64(1))]),                // $unset neither object nor array
         ];
         for (i, spec) in bad.iter().enumerate() {
             let r = c.update_one(by_id("a"), spec.clone());
-            assert!(matches!(r, Err(StoreError::InvalidUpdate(_))), "spec {i} must be InvalidUpdate");
+            assert!(
+                matches!(r, Err(StoreError::InvalidUpdate(_))),
+                "spec {i} must be InvalidUpdate"
+            );
         }
-        assert_eq!(c.get("a").unwrap(), &before, "store untouched after bad specs");
+        assert_eq!(
+            c.get("a").unwrap(),
+            &before,
+            "store untouched after bad specs"
+        );
     }
 
     #[test]
     fn update_many_changes_all_matches_and_counts() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("age", Value::i64(25))])).unwrap();
-        c.insert(doc(&[("_id", Value::str("b")), ("age", Value::i64(40))])).unwrap();
-        c.insert(doc(&[("_id", Value::str("c")), ("age", Value::i64(55))])).unwrap();
-        let n = c.update_many(doc(&[]), uop(&[("$set", doc(&[("flag", Value::bool(true))]))])).unwrap();
+        c.insert(doc(&[("_id", Value::str("a")), ("age", Value::i64(25))]))
+            .unwrap();
+        c.insert(doc(&[("_id", Value::str("b")), ("age", Value::i64(40))]))
+            .unwrap();
+        c.insert(doc(&[("_id", Value::str("c")), ("age", Value::i64(55))]))
+            .unwrap();
+        let n = c
+            .update_many(
+                doc(&[]),
+                uop(&[("$set", doc(&[("flag", Value::bool(true))]))]),
+            )
+            .unwrap();
         assert_eq!(n, 3);
         for id in ["a", "b", "c"] {
             assert_eq!(c.get(id).unwrap().get("flag"), Some(&Value::bool(true)));
         }
         // a no-match update_many returns 0 (NOT an error, unlike update_one)
-        let n = c.update_many(doc(&[("age", Value::i64(9999))]), uop(&[("$set", doc(&[("flag", Value::bool(false))]))])).unwrap();
+        let n = c
+            .update_many(
+                doc(&[("age", Value::i64(9999))]),
+                uop(&[("$set", doc(&[("flag", Value::bool(false))]))]),
+            )
+            .unwrap();
         assert_eq!(n, 0);
     }
 
     #[test]
     fn update_many_refreshes_index() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("age", Value::i64(25))])).unwrap();
-        c.insert(doc(&[("_id", Value::str("b")), ("age", Value::i64(40))])).unwrap();
+        c.insert(doc(&[("_id", Value::str("a")), ("age", Value::i64(25))]))
+            .unwrap();
+        c.insert(doc(&[("_id", Value::str("b")), ("age", Value::i64(40))]))
+            .unwrap();
         c.create_index("age").unwrap();
         let n = c
-            .update_many(doc(&[("age", doc(&[("$gte", Value::i64(30))]))]), uop(&[("$inc", doc(&[("age", Value::i64(100))]))]))
+            .update_many(
+                doc(&[("age", doc(&[("$gte", Value::i64(30))]))]),
+                uop(&[("$inc", doc(&[("age", Value::i64(100))]))]),
+            )
             .unwrap();
         assert_eq!(n, 1, "only b (40) matches $gte 30");
         assert_eq!(c.get("a").unwrap().get("age"), Some(&Value::i64(25)));
@@ -1875,15 +2012,19 @@ mod tests {
     fn update_many_empty_collection_is_zero() {
         let c = Collection::new("t");
         let mut c = c;
-        let n = c.update_many(doc(&[]), uop(&[("$set", doc(&[("x", Value::i64(1))]))])).unwrap();
+        let n = c
+            .update_many(doc(&[]), uop(&[("$set", doc(&[("x", Value::i64(1))]))]))
+            .unwrap();
         assert_eq!(n, 0);
     }
 
     #[test]
     fn update_many_malformed_spec_changes_nothing() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("n", Value::i64(1))])).unwrap();
-        c.insert(doc(&[("_id", Value::str("b")), ("n", Value::i64(2))])).unwrap();
+        c.insert(doc(&[("_id", Value::str("a")), ("n", Value::i64(1))]))
+            .unwrap();
+        c.insert(doc(&[("_id", Value::str("b")), ("n", Value::i64(2))]))
+            .unwrap();
         let before = c.len();
         // an unknown operator is a shape error: validated up front, nothing applied
         let r = c.update_many(doc(&[]), uop(&[("$bogus", doc(&[("n", Value::i64(1))]))]));
@@ -1897,9 +2038,19 @@ mod tests {
     #[test]
     fn replace_one_replaces_wholesale_and_preserves_id() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("age", Value::i64(25)), ("name", Value::str("moo"))])).unwrap();
+        c.insert(doc(&[
+            ("_id", Value::str("a")),
+            ("age", Value::i64(25)),
+            ("name", Value::str("moo")),
+        ]))
+        .unwrap();
         // new doc has a different shape: old fields gone, new fields added
-        let r = c.replace_one(by_id("a"), doc(&[("age", Value::i64(40)), ("weight", Value::i64(3))])).unwrap();
+        let r = c
+            .replace_one(
+                by_id("a"),
+                doc(&[("age", Value::i64(40)), ("weight", Value::i64(3))]),
+            )
+            .unwrap();
         assert_eq!(r, 1);
         let d = c.get("a").unwrap();
         assert_eq!(d.get("_id"), Some(&Value::str("a")), "_id preserved");
@@ -1911,14 +2062,20 @@ mod tests {
     #[test]
     fn replace_one_refreshes_index() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("age", Value::i64(25))])).unwrap();
-        c.insert(doc(&[("_id", Value::str("b")), ("age", Value::i64(40))])).unwrap();
+        c.insert(doc(&[("_id", Value::str("a")), ("age", Value::i64(25))]))
+            .unwrap();
+        c.insert(doc(&[("_id", Value::str("b")), ("age", Value::i64(40))]))
+            .unwrap();
         c.create_index("age").unwrap();
         // replace a's whole doc, dropping `age` entirely -> it becomes a Null entry
-        c.replace_one(by_id("a"), doc(&[("other", Value::i64(9))])).unwrap();
+        c.replace_one(by_id("a"), doc(&[("other", Value::i64(9))]))
+            .unwrap();
         let age = c.index("age").unwrap();
         assert_eq!(age.ids_equal(&Value::i64(40)), vec!["b"]);
-        assert!(age.ids_equal(&Value::i64(25)).is_empty(), "old value deindexed");
+        assert!(
+            age.ids_equal(&Value::i64(25)).is_empty(),
+            "old value deindexed"
+        );
         // a now carries a Null age entry (field missing)
         assert_eq!(age.ids_equal(&Value::Null), vec!["a"]);
         assert_eq!(c.get("a").unwrap().get("age"), None);
@@ -1927,13 +2084,32 @@ mod tests {
     #[test]
     fn replace_one_replaces_only_the_first_match() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("kind", Value::str("moo"))])).unwrap();
-        c.insert(doc(&[("_id", Value::str("b")), ("kind", Value::str("moo"))])).unwrap();
-        let r = c.replace_one(doc(&[("kind", Value::str("moo"))]), doc(&[("kind", Value::str("bee"))])).unwrap();
+        c.insert(doc(&[
+            ("_id", Value::str("a")),
+            ("kind", Value::str("moo")),
+        ]))
+        .unwrap();
+        c.insert(doc(&[
+            ("_id", Value::str("b")),
+            ("kind", Value::str("moo")),
+        ]))
+        .unwrap();
+        let r = c
+            .replace_one(
+                doc(&[("kind", Value::str("moo"))]),
+                doc(&[("kind", Value::str("bee"))]),
+            )
+            .unwrap();
         assert_eq!(r, 1);
         // storage order: only one doc changed, the other stays moo
         let kinds: Vec<_> = c.iter().map(|d| d.get("kind").unwrap()).collect();
-        let mut sorted = kinds.iter().map(|v| match v { Value::Str(s) => s.as_str(), _ => "" }).collect::<Vec<_>>();
+        let mut sorted = kinds
+            .iter()
+            .map(|v| match v {
+                Value::Str(s) => s.as_str(),
+                _ => "",
+            })
+            .collect::<Vec<_>>();
         sorted.sort();
         assert_eq!(sorted, vec!["bee", "moo"]);
         assert_eq!(c.count(doc(&[])), 2, "no doc was inserted or dropped");
@@ -1942,19 +2118,29 @@ mod tests {
     #[test]
     fn replace_one_no_match_is_an_error() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("n", Value::i64(1))])).unwrap();
+        c.insert(doc(&[("_id", Value::str("a")), ("n", Value::i64(1))]))
+            .unwrap();
         let r = c.replace_one(by_id("ghost"), doc(&[("n", Value::i64(2))]));
         assert_eq!(r, Err(StoreError::NoMatch));
-        assert_eq!(c.get("a").unwrap().get("n"), Some(&Value::i64(1)), "store untouched");
+        assert_eq!(
+            c.get("a").unwrap().get("n"),
+            Some(&Value::i64(1)),
+            "store untouched"
+        );
         assert_eq!(c.len(), 1);
     }
 
     #[test]
     fn replace_one_explicit_matching_id_keeps_position() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("z", Value::i64(1))])).unwrap();
+        c.insert(doc(&[("_id", Value::str("a")), ("z", Value::i64(1))]))
+            .unwrap();
         // explicit _id equal to the matched one: position preserved
-        c.replace_one(by_id("a"), doc(&[("x", Value::i64(2)), ("_id", Value::str("a"))])).unwrap();
+        c.replace_one(
+            by_id("a"),
+            doc(&[("x", Value::i64(2)), ("_id", Value::str("a"))]),
+        )
+        .unwrap();
         let d = c.get("a").unwrap();
         assert_eq!(d.get("_id"), Some(&Value::str("a")));
         assert_eq!(d.get("x"), Some(&Value::i64(2)));
@@ -1966,9 +2152,11 @@ mod tests {
     #[test]
     fn replace_one_missing_id_restored_as_first_key() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("z", Value::i64(1))])).unwrap();
+        c.insert(doc(&[("_id", Value::str("a")), ("z", Value::i64(1))]))
+            .unwrap();
         // new doc omits _id: the matched doc's _id is restored as the first key
-        c.replace_one(by_id("a"), doc(&[("x", Value::i64(2))])).unwrap();
+        c.replace_one(by_id("a"), doc(&[("x", Value::i64(2))]))
+            .unwrap();
         let d = c.get("a").unwrap();
         assert_eq!(d.get("_id"), Some(&Value::str("a")));
         assert_eq!(d.keys().next(), Some("_id"));
@@ -1977,8 +2165,12 @@ mod tests {
     #[test]
     fn replace_one_rejects_id_change() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("n", Value::i64(1))])).unwrap();
-        let r = c.replace_one(by_id("a"), doc(&[("_id", Value::str("zzz")), ("n", Value::i64(9))]));
+        c.insert(doc(&[("_id", Value::str("a")), ("n", Value::i64(1))]))
+            .unwrap();
+        let r = c.replace_one(
+            by_id("a"),
+            doc(&[("_id", Value::str("zzz")), ("n", Value::i64(9))]),
+        );
         assert_eq!(
             r,
             Err(StoreError::IdMismatch {
@@ -1996,12 +2188,17 @@ mod tests {
     #[test]
     fn replace_one_rejects_non_object_doc() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("n", Value::i64(1))])).unwrap();
+        c.insert(doc(&[("_id", Value::str("a")), ("n", Value::i64(1))]))
+            .unwrap();
         for bad in [Value::array(), Value::i64(5), Value::str("x"), Value::Null] {
             let r = c.replace_one(by_id("a"), bad.clone());
             assert_eq!(r, Err(StoreError::NotAnObject), "non-object {bad}");
         }
-        assert_eq!(c.get("a").unwrap().get("n"), Some(&Value::i64(1)), "untouched");
+        assert_eq!(
+            c.get("a").unwrap().get("n"),
+            Some(&Value::i64(1)),
+            "untouched"
+        );
     }
 
     // -- delete_one / delete_many ------------------------------------------------
@@ -2009,9 +2206,21 @@ mod tests {
     #[test]
     fn delete_one_removes_one_match() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("kind", Value::str("moo"))])).unwrap();
-        c.insert(doc(&[("_id", Value::str("b")), ("kind", Value::str("bee"))])).unwrap();
-        c.insert(doc(&[("_id", Value::str("c")), ("kind", Value::str("moo"))])).unwrap();
+        c.insert(doc(&[
+            ("_id", Value::str("a")),
+            ("kind", Value::str("moo")),
+        ]))
+        .unwrap();
+        c.insert(doc(&[
+            ("_id", Value::str("b")),
+            ("kind", Value::str("bee")),
+        ]))
+        .unwrap();
+        c.insert(doc(&[
+            ("_id", Value::str("c")),
+            ("kind", Value::str("moo")),
+        ]))
+        .unwrap();
         let deleted = c.delete_one(doc(&[("kind", Value::str("moo"))]));
         assert!(deleted, "delete_one returns true when a doc was removed");
         assert_eq!(c.len(), 2, "exactly one doc removed");
@@ -2025,7 +2234,8 @@ mod tests {
     #[test]
     fn delete_one_no_match_returns_false() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("n", Value::i64(1))])).unwrap();
+        c.insert(doc(&[("_id", Value::str("a")), ("n", Value::i64(1))]))
+            .unwrap();
         let deleted = c.delete_one(by_id("ghost"));
         assert!(!deleted, "delete_one returns false on no match");
         assert_eq!(c.len(), 1, "store untouched");
@@ -2043,14 +2253,21 @@ mod tests {
     #[test]
     fn delete_one_refreshes_index() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("age", Value::i64(25))])).unwrap();
-        c.insert(doc(&[("_id", Value::str("b")), ("age", Value::i64(40))])).unwrap();
-        c.insert(doc(&[("_id", Value::str("c")), ("age", Value::i64(25))])).unwrap();
+        c.insert(doc(&[("_id", Value::str("a")), ("age", Value::i64(25))]))
+            .unwrap();
+        c.insert(doc(&[("_id", Value::str("b")), ("age", Value::i64(40))]))
+            .unwrap();
+        c.insert(doc(&[("_id", Value::str("c")), ("age", Value::i64(25))]))
+            .unwrap();
         c.create_index("age").unwrap();
         // delete a (age=25): the age index should no longer have "a" under 25
         assert!(c.delete_one(by_id("a")));
         let age = c.index("age").unwrap();
-        assert_eq!(age.ids_equal(&Value::i64(25)), vec!["c"], "only c remains at age 25");
+        assert_eq!(
+            age.ids_equal(&Value::i64(25)),
+            vec!["c"],
+            "only c remains at age 25"
+        );
         assert_eq!(age.ids_equal(&Value::i64(40)), vec!["b"]);
         assert_eq!(age.len(), 2, "index shrank by one");
     }
@@ -2058,24 +2275,63 @@ mod tests {
     #[test]
     fn delete_one_removes_from_all_indexes() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("age", Value::i64(25)), ("tag", Value::str("x"))])).unwrap();
-        c.insert(doc(&[("_id", Value::str("b")), ("age", Value::i64(40)), ("tag", Value::str("x"))])).unwrap();
+        c.insert(doc(&[
+            ("_id", Value::str("a")),
+            ("age", Value::i64(25)),
+            ("tag", Value::str("x")),
+        ]))
+        .unwrap();
+        c.insert(doc(&[
+            ("_id", Value::str("b")),
+            ("age", Value::i64(40)),
+            ("tag", Value::str("x")),
+        ]))
+        .unwrap();
         c.create_index("age").unwrap();
         c.create_index("tag").unwrap();
         assert!(c.delete_one(by_id("a")));
-        assert!(c.index("age").unwrap().ids_equal(&Value::i64(25)).is_empty());
-        assert_eq!(c.index("tag").unwrap().ids_equal(&Value::str("x")), vec!["b"]);
+        assert!(
+            c.index("age")
+                .unwrap()
+                .ids_equal(&Value::i64(25))
+                .is_empty()
+        );
+        assert_eq!(
+            c.index("tag").unwrap().ids_equal(&Value::str("x")),
+            vec!["b"]
+        );
         // primary _id index also updated
-        assert!(c.index("_id").unwrap().ids_equal(&Value::str("a")).is_empty());
+        assert!(
+            c.index("_id")
+                .unwrap()
+                .ids_equal(&Value::str("a"))
+                .is_empty()
+        );
     }
 
     #[test]
     fn delete_many_removes_all_matches_and_counts() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("kind", Value::str("moo"))])).unwrap();
-        c.insert(doc(&[("_id", Value::str("b")), ("kind", Value::str("moo"))])).unwrap();
-        c.insert(doc(&[("_id", Value::str("c")), ("kind", Value::str("bee"))])).unwrap();
-        c.insert(doc(&[("_id", Value::str("d")), ("kind", Value::str("moo"))])).unwrap();
+        c.insert(doc(&[
+            ("_id", Value::str("a")),
+            ("kind", Value::str("moo")),
+        ]))
+        .unwrap();
+        c.insert(doc(&[
+            ("_id", Value::str("b")),
+            ("kind", Value::str("moo")),
+        ]))
+        .unwrap();
+        c.insert(doc(&[
+            ("_id", Value::str("c")),
+            ("kind", Value::str("bee")),
+        ]))
+        .unwrap();
+        c.insert(doc(&[
+            ("_id", Value::str("d")),
+            ("kind", Value::str("moo")),
+        ]))
+        .unwrap();
         let n = c.delete_many(doc(&[("kind", Value::str("moo"))]));
         assert_eq!(n, 3, "three moo docs deleted");
         assert_eq!(c.len(), 1);
@@ -2086,7 +2342,8 @@ mod tests {
     #[test]
     fn delete_many_no_match_returns_zero() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("n", Value::i64(1))])).unwrap();
+        c.insert(doc(&[("_id", Value::str("a")), ("n", Value::i64(1))]))
+            .unwrap();
         let n = c.delete_many(by_id("ghost"));
         assert_eq!(n, 0, "no match -> zero deleted, no error");
         assert_eq!(c.len(), 1);
@@ -2115,14 +2372,20 @@ mod tests {
     #[test]
     fn delete_many_refreshes_index() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("age", Value::i64(25))])).unwrap();
-        c.insert(doc(&[("_id", Value::str("b")), ("age", Value::i64(25))])).unwrap();
-        c.insert(doc(&[("_id", Value::str("c")), ("age", Value::i64(40))])).unwrap();
+        c.insert(doc(&[("_id", Value::str("a")), ("age", Value::i64(25))]))
+            .unwrap();
+        c.insert(doc(&[("_id", Value::str("b")), ("age", Value::i64(25))]))
+            .unwrap();
+        c.insert(doc(&[("_id", Value::str("c")), ("age", Value::i64(40))]))
+            .unwrap();
         c.create_index("age").unwrap();
         let n = c.delete_many(doc(&[("age", Value::i64(25))]));
         assert_eq!(n, 2);
         let age = c.index("age").unwrap();
-        assert!(age.ids_equal(&Value::i64(25)).is_empty(), "all age-25 entries gone");
+        assert!(
+            age.ids_equal(&Value::i64(25)).is_empty(),
+            "all age-25 entries gone"
+        );
         assert_eq!(age.ids_equal(&Value::i64(40)), vec!["c"]);
         assert_eq!(age.len(), 1);
     }
@@ -2130,14 +2393,17 @@ mod tests {
     #[test]
     fn delete_then_insert_reuses_index_slot() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("age", Value::i64(10))])).unwrap();
-        c.insert(doc(&[("_id", Value::str("b")), ("age", Value::i64(20))])).unwrap();
+        c.insert(doc(&[("_id", Value::str("a")), ("age", Value::i64(10))]))
+            .unwrap();
+        c.insert(doc(&[("_id", Value::str("b")), ("age", Value::i64(20))]))
+            .unwrap();
         c.create_index("age").unwrap();
         assert_eq!(c.index("age").unwrap().len(), 2);
         assert!(c.delete_one(by_id("a")));
         assert_eq!(c.index("age").unwrap().len(), 1);
         // re-insert with the same id but different value: index is consistent
-        c.insert(doc(&[("_id", Value::str("a")), ("age", Value::i64(99))])).unwrap();
+        c.insert(doc(&[("_id", Value::str("a")), ("age", Value::i64(99))]))
+            .unwrap();
         let age = c.index("age").unwrap();
         assert_eq!(age.len(), 2);
         assert_eq!(age.ids_equal(&Value::i64(99)), vec!["a"]);
@@ -2147,11 +2413,17 @@ mod tests {
     #[test]
     fn delete_one_by_range_filter() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("age", Value::i64(10))])).unwrap();
-        c.insert(doc(&[("_id", Value::str("b")), ("age", Value::i64(30))])).unwrap();
-        c.insert(doc(&[("_id", Value::str("c")), ("age", Value::i64(50))])).unwrap();
+        c.insert(doc(&[("_id", Value::str("a")), ("age", Value::i64(10))]))
+            .unwrap();
+        c.insert(doc(&[("_id", Value::str("b")), ("age", Value::i64(30))]))
+            .unwrap();
+        c.insert(doc(&[("_id", Value::str("c")), ("age", Value::i64(50))]))
+            .unwrap();
         // range: age >= 20 and age < 40 -> only b
-        let filter = doc(&[("age", doc(&[("$gte", Value::i64(20)), ("$lt", Value::i64(40))]))]);
+        let filter = doc(&[(
+            "age",
+            doc(&[("$gte", Value::i64(20)), ("$lt", Value::i64(40))]),
+        )]);
         assert!(c.delete_one(filter));
         assert!(!c.contains("b"));
         assert!(c.contains("a") && c.contains("c"));
@@ -2163,13 +2435,19 @@ mod tests {
     #[test]
     fn transaction_commit_applies_all_writes_and_indexes() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("age", Value::i64(25))])).unwrap();
-        c.insert(doc(&[("_id", Value::str("b")), ("age", Value::i64(40))])).unwrap();
+        c.insert(doc(&[("_id", Value::str("a")), ("age", Value::i64(25))]))
+            .unwrap();
+        c.insert(doc(&[("_id", Value::str("b")), ("age", Value::i64(40))]))
+            .unwrap();
         c.create_index("age").unwrap();
         let mut tx = c.begin();
-        tx.insert(doc(&[("_id", Value::str("c")), ("age", Value::i64(30))])).unwrap();
+        tx.insert(doc(&[("_id", Value::str("c")), ("age", Value::i64(30))]))
+            .unwrap();
         assert_eq!(
-            tx.update(by_id("a"), uop(&[("$set", doc(&[("age", Value::i64(99))]))])),
+            tx.update(
+                by_id("a"),
+                uop(&[("$set", doc(&[("age", Value::i64(99))]))])
+            ),
             Ok(1)
         );
         assert_eq!(tx.delete(by_id("b")), 1);
@@ -2198,10 +2476,14 @@ mod tests {
     #[test]
     fn transaction_rolls_back_on_duplicate_insert() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("keep")), ("n", Value::i64(1))])).unwrap();
+        c.insert(doc(&[("_id", Value::str("keep")), ("n", Value::i64(1))]))
+            .unwrap();
         let mut tx = c.begin();
-        tx.insert(doc(&[("_id", Value::str("fresh")), ("n", Value::i64(2))])).unwrap();
-        let err = tx.insert(doc(&[("_id", Value::str("keep")), ("n", Value::i64(3))])).unwrap_err();
+        tx.insert(doc(&[("_id", Value::str("fresh")), ("n", Value::i64(2))]))
+            .unwrap();
+        let err = tx
+            .insert(doc(&[("_id", Value::str("keep")), ("n", Value::i64(3))]))
+            .unwrap_err();
         assert_eq!(err, StoreError::DuplicateId("keep".into()));
         assert!(tx.is_failed());
         assert_eq!(tx.error(), Some(&StoreError::DuplicateId("keep".into())));
@@ -2215,9 +2497,11 @@ mod tests {
     #[test]
     fn transaction_rolls_back_on_malformed_update() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("s", Value::str("hi"))])).unwrap();
+        c.insert(doc(&[("_id", Value::str("a")), ("s", Value::str("hi"))]))
+            .unwrap();
         let mut tx = c.begin();
-        tx.insert(doc(&[("_id", Value::str("x")), ("n", Value::i64(9))])).unwrap();
+        tx.insert(doc(&[("_id", Value::str("x")), ("n", Value::i64(9))]))
+            .unwrap();
         // $inc on a string field -> InvalidUpdate -> fails the whole tx
         let r = tx.update(by_id("a"), uop(&[("$inc", doc(&[("s", Value::i64(1))]))]));
         assert!(matches!(r, Err(StoreError::InvalidUpdate(_))));
@@ -2231,10 +2515,12 @@ mod tests {
     #[test]
     fn transaction_drop_without_commit_is_rollback() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("n", Value::i64(1))])).unwrap();
+        c.insert(doc(&[("_id", Value::str("a")), ("n", Value::i64(1))]))
+            .unwrap();
         {
             let mut tx = c.begin();
-            tx.insert(doc(&[("_id", Value::str("x")), ("n", Value::i64(9))])).unwrap();
+            tx.insert(doc(&[("_id", Value::str("x")), ("n", Value::i64(9))]))
+                .unwrap();
             tx.delete(by_id("a"));
             // reads inside see the pre-batch state
             assert_eq!(tx.len(), 1);
@@ -2252,9 +2538,11 @@ mod tests {
     #[test]
     fn transaction_explicit_rollback_discards_writes() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("n", Value::i64(1))])).unwrap();
+        c.insert(doc(&[("_id", Value::str("a")), ("n", Value::i64(1))]))
+            .unwrap();
         let mut tx = c.begin();
-        tx.insert(doc(&[("_id", Value::str("x")), ("n", Value::i64(9))])).unwrap();
+        tx.insert(doc(&[("_id", Value::str("x")), ("n", Value::i64(9))]))
+            .unwrap();
         tx.rollback();
         assert_eq!(c.len(), 1);
         assert!(!c.contains("x"));
@@ -2275,8 +2563,11 @@ mod tests {
     fn transaction_intra_batch_duplicate_insert_fails() {
         let mut c = Collection::new("t");
         let mut tx = c.begin();
-        tx.insert(doc(&[("_id", Value::str("twin")), ("n", Value::i64(1))])).unwrap();
-        let err = tx.insert(doc(&[("_id", Value::str("twin")), ("n", Value::i64(2))])).unwrap_err();
+        tx.insert(doc(&[("_id", Value::str("twin")), ("n", Value::i64(1))]))
+            .unwrap();
+        let err = tx
+            .insert(doc(&[("_id", Value::str("twin")), ("n", Value::i64(2))]))
+            .unwrap_err();
         assert_eq!(err, StoreError::DuplicateId("twin".into()));
         assert!(tx.is_failed());
         tx.rollback();
@@ -2286,7 +2577,8 @@ mod tests {
     #[test]
     fn transaction_later_write_overwrites_earlier_on_same_id() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("n", Value::i64(0))])).unwrap();
+        c.insert(doc(&[("_id", Value::str("a")), ("n", Value::i64(0))]))
+            .unwrap();
         let mut tx = c.begin();
         // Two $inc on the same field in one batch: each recomputes from the
         // pre-batch snapshot (n=0). The later op overwrites the earlier one on
@@ -2306,7 +2598,8 @@ mod tests {
     #[test]
     fn transaction_update_then_delete_same_id_net_delete() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("x")), ("n", Value::i64(1))])).unwrap();
+        c.insert(doc(&[("_id", Value::str("x")), ("n", Value::i64(1))]))
+            .unwrap();
         let mut tx = c.begin();
         // update x (stages a put), then delete x (composes the put into a
         // Delete) -> net: x is removed
@@ -2316,7 +2609,10 @@ mod tests {
         );
         assert_eq!(tx.delete(by_id("x")), 1);
         tx.commit().unwrap();
-        assert!(c.is_empty(), "update+delete of the same pre-batch doc nets to deletion");
+        assert!(
+            c.is_empty(),
+            "update+delete of the same pre-batch doc nets to deletion"
+        );
     }
 
     #[test]
@@ -2325,34 +2621,60 @@ mod tests {
         let mut tx = c.begin();
         // a doc inserted only in this batch is invisible to pre-batch reads,
         // so a filter-based delete cannot target it (it stays staged)
-        tx.insert(doc(&[("_id", Value::str("x")), ("n", Value::i64(9))])).unwrap();
+        tx.insert(doc(&[("_id", Value::str("x")), ("n", Value::i64(9))]))
+            .unwrap();
         assert_eq!(tx.delete(by_id("x")), 0, "x is not in the pre-batch store");
         tx.commit().unwrap();
-        assert!(c.contains("x"), "the batch insert remains (delete could not see it)");
+        assert!(
+            c.contains("x"),
+            "the batch insert remains (delete could not see it)"
+        );
     }
 
     #[test]
     fn transaction_mixed_ops_compose_by_id_and_refresh_indexes() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("age", Value::i64(10)), ("tag", Value::str("moo"))])).unwrap();
-        c.insert(doc(&[("_id", Value::str("b")), ("age", Value::i64(20)), ("tag", Value::str("bee"))])).unwrap();
+        c.insert(doc(&[
+            ("_id", Value::str("a")),
+            ("age", Value::i64(10)),
+            ("tag", Value::str("moo")),
+        ]))
+        .unwrap();
+        c.insert(doc(&[
+            ("_id", Value::str("b")),
+            ("age", Value::i64(20)),
+            ("tag", Value::str("bee")),
+        ]))
+        .unwrap();
         c.create_index("age").unwrap();
         c.create_index("tag").unwrap();
         let mut tx = c.begin();
         // replace a wholesale (drops `tag`)
-        assert_eq!(tx.replace(by_id("a"), doc(&[("age", Value::i64(99))])), Ok(1));
+        assert_eq!(
+            tx.replace(by_id("a"), doc(&[("age", Value::i64(99))])),
+            Ok(1)
+        );
         // update b's age
         assert_eq!(
             tx.update(by_id("b"), uop(&[("$inc", doc(&[("age", Value::i64(5))]))])),
             Ok(1)
         );
         // insert a fresh doc
-        tx.insert(doc(&[("_id", Value::str("c")), ("age", Value::i64(50)), ("tag", Value::str("moo"))])).unwrap();
+        tx.insert(doc(&[
+            ("_id", Value::str("c")),
+            ("age", Value::i64(50)),
+            ("tag", Value::str("moo")),
+        ]))
+        .unwrap();
         tx.commit().unwrap();
         assert_eq!(c.len(), 3);
         // a was replaced wholesale: `tag` gone, age now 99
         assert_eq!(c.get("a").unwrap().get("age"), Some(&Value::i64(99)));
-        assert_eq!(c.get("a").unwrap().get("tag"), None, "wholesale replace dropped tag");
+        assert_eq!(
+            c.get("a").unwrap().get("tag"),
+            None,
+            "wholesale replace dropped tag"
+        );
         // b incremented
         assert_eq!(c.get("b").unwrap().get("age"), Some(&Value::i64(25)));
         // age index: 10 and 20 gone; 99(a), 25(b), 50(c) present
@@ -2375,14 +2697,22 @@ mod tests {
     #[test]
     fn transaction_replace_id_mismatch_rolls_back() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("n", Value::i64(1))])).unwrap();
+        c.insert(doc(&[("_id", Value::str("a")), ("n", Value::i64(1))]))
+            .unwrap();
         let mut tx = c.begin();
-        tx.insert(doc(&[("_id", Value::str("x")), ("n", Value::i64(9))])).unwrap();
+        tx.insert(doc(&[("_id", Value::str("x")), ("n", Value::i64(9))]))
+            .unwrap();
         // replace a with a doc whose _id differs -> IdMismatch -> rollback
-        let r = tx.replace(by_id("a"), doc(&[("_id", Value::str("zzz")), ("n", Value::i64(9))]));
+        let r = tx.replace(
+            by_id("a"),
+            doc(&[("_id", Value::str("zzz")), ("n", Value::i64(9))]),
+        );
         assert_eq!(
             r,
-            Err(StoreError::IdMismatch { expected: "a".into(), found: "zzz".into() })
+            Err(StoreError::IdMismatch {
+                expected: "a".into(),
+                found: "zzz".into()
+            })
         );
         assert!(tx.is_failed());
         tx.rollback();
@@ -2395,12 +2725,19 @@ mod tests {
     #[test]
     fn transaction_pre_batch_reads_ignore_staged_writes() {
         let mut c = Collection::new("t");
-        c.insert(doc(&[("_id", Value::str("a")), ("k", Value::str("moo"))])).unwrap();
-        c.insert(doc(&[("_id", Value::str("b")), ("k", Value::str("bee"))])).unwrap();
+        c.insert(doc(&[("_id", Value::str("a")), ("k", Value::str("moo"))]))
+            .unwrap();
+        c.insert(doc(&[("_id", Value::str("b")), ("k", Value::str("bee"))]))
+            .unwrap();
         let mut tx = c.begin();
         // staged writes that would change the filtered result
-        tx.update(doc(&[("k", Value::str("moo"))]), uop(&[("$set", doc(&[("k", Value::str("bee"))]))])).unwrap();
-        tx.insert(doc(&[("_id", Value::str("c")), ("k", Value::str("bee"))])).unwrap();
+        tx.update(
+            doc(&[("k", Value::str("moo"))]),
+            uop(&[("$set", doc(&[("k", Value::str("bee"))]))]),
+        )
+        .unwrap();
+        tx.insert(doc(&[("_id", Value::str("c")), ("k", Value::str("bee"))]))
+            .unwrap();
         // pre-batch reads: still 2 docs, only one bee, a is still moo
         assert_eq!(tx.len(), 2);
         assert_eq!(tx.count(doc(&[("k", Value::str("bee"))])), 1);
@@ -2415,7 +2752,8 @@ mod tests {
     fn transaction_delete_many_several_and_refresh_index() {
         let mut c = Collection::new("t");
         for (id, age) in [("a", 25), ("b", 25), ("c", 40), ("d", 25)] {
-            c.insert(doc(&[("_id", Value::str(id)), ("age", Value::i64(age))])).unwrap();
+            c.insert(doc(&[("_id", Value::str(id)), ("age", Value::i64(age))]))
+                .unwrap();
         }
         c.create_index("age").unwrap();
         let mut tx = c.begin();
@@ -2497,7 +2835,10 @@ mod tests {
         assert_eq!(s.indexes, 3);
         // Field-name byte order: "_id" < "age" < "tag".
         assert_eq!(
-            s.per_index.iter().map(|i| i.field.as_str()).collect::<Vec<_>>(),
+            s.per_index
+                .iter()
+                .map(|i| i.field.as_str())
+                .collect::<Vec<_>>(),
             vec!["_id", "age", "tag"]
         );
         for ix in &s.per_index {
@@ -2508,7 +2849,10 @@ mod tests {
         assert_eq!(s.per_index[0].distinct, 3, "_id is always distinct");
         assert_eq!(s.per_index[1].distinct, 2, "age: 30(i64), 30.0(f64), 40");
         assert_eq!(s.per_index[2].distinct, 2, "tag: x + Null (missing)");
-        assert_eq!(s.total_memory, s.docs_memory + s.per_index.iter().map(|i| i.memory).sum::<usize>());
+        assert_eq!(
+            s.total_memory,
+            s.docs_memory + s.per_index.iter().map(|i| i.memory).sum::<usize>()
+        );
     }
 
     #[test]
@@ -2564,16 +2908,16 @@ mod tests {
     fn reindex_stays_in_lockstep_after_mixed_writes() {
         let mut c = Collection::new("mixed");
         for (id, age) in [("a", 10), ("b", 20), ("c", 30), ("d", 40)] {
-            c.insert(doc(&[("_id", Value::str(id)), ("age", Value::i64(age))])).unwrap();
+            c.insert(doc(&[("_id", Value::str(id)), ("age", Value::i64(age))]))
+                .unwrap();
         }
         c.create_index("age").unwrap();
         // Mixed mutations: bump, delete, insert-with-missing-field, replace.
         c.update_many(Value::object(), uop_inc(5)).unwrap();
         c.delete_one(Value::Object(
-            std::iter::once(("_id".to_string(), Value::str("a")))
-                .collect(),
+            std::iter::once(("_id".to_string(), Value::str("a"))).collect(),
         ))
-        .then(|| ());
+        .then_some(());
         c.insert(doc(&[("_id", Value::str("e"))])).unwrap(); // no `age` -> Null entry
         c.reindex();
         let age = c.index("age").unwrap();
@@ -2587,7 +2931,10 @@ mod tests {
         assert_eq!(age.ids_equal(&Value::Null), vec!["e"]);
         // Full-scan agreement after the rebuild.
         assert_eq!(
-            c.count(Value::object_from(vec![("age".to_string(), Value::i64(35))])),
+            c.count(Value::object_from(vec![(
+                "age".to_string(),
+                Value::i64(35)
+            )])),
             1
         );
     }
@@ -2597,7 +2944,11 @@ mod tests {
         let mut c = stats_herd();
         let before = c.stats();
         c.reindex();
-        assert_eq!(c.stats(), before, "deterministic rebuild leaves stats intact");
+        assert_eq!(
+            c.stats(),
+            before,
+            "deterministic rebuild leaves stats intact"
+        );
     }
 
     /// `{"$inc": {"age": n}}` update spec for the mixed-writes test.

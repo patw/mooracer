@@ -95,20 +95,22 @@ impl FieldIndex {
 
     /// Insert `(value, id)` keeping the sort invariant.
     pub fn insert(&mut self, value: Value, id: String) {
-        let pos = self.entries.partition_point(|e| {
-            match e.value.cmp(&value) {
-                Ordering::Less => true,
-                Ordering::Equal => e.id < id,
-                Ordering::Greater => false,
-            }
+        let pos = self.entries.partition_point(|e| match e.value.cmp(&value) {
+            Ordering::Less => true,
+            Ordering::Equal => e.id < id,
+            Ordering::Greater => false,
         });
         self.entries.insert(pos, Entry { value, id });
     }
 
     /// Remove the entry `(value, id)`. Returns `true` if an entry was found.
     pub fn remove(&mut self, id: &str, value: &Value) -> bool {
-        let start = self.entries.partition_point(|e| e.value.cmp(value) == Ordering::Less);
-        let end = self.entries.partition_point(|e| e.value.cmp(value) != Ordering::Greater);
+        let start = self
+            .entries
+            .partition_point(|e| e.value.cmp(value) == Ordering::Less);
+        let end = self
+            .entries
+            .partition_point(|e| e.value.cmp(value) != Ordering::Greater);
         let slice = &self.entries[start..end];
         let i = slice.partition_point(|e| e.id.as_str() < id);
         if i < slice.len() && slice[i].id == id {
@@ -121,14 +123,20 @@ impl FieldIndex {
 
     /// `true` when some entry's value equals `value` (engine total order).
     pub fn contains_value(&self, value: &Value) -> bool {
-        let s = self.entries.partition_point(|e| e.value.cmp(value) == Ordering::Less);
+        let s = self
+            .entries
+            .partition_point(|e| e.value.cmp(value) == Ordering::Less);
         s < self.entries.len() && self.entries[s].value == *value
     }
 
     /// Document ids whose indexed value equals `value`, in `_id` order.
     pub fn ids_equal(&self, value: &Value) -> Vec<&str> {
-        let s = self.entries.partition_point(|e| e.value.cmp(value) == Ordering::Less);
-        let e = self.entries.partition_point(|e| e.value.cmp(value) != Ordering::Greater);
+        let s = self
+            .entries
+            .partition_point(|e| e.value.cmp(value) == Ordering::Less);
+        let e = self
+            .entries
+            .partition_point(|e| e.value.cmp(value) != Ordering::Greater);
         self.entries[s..e].iter().map(|en| en.id.as_str()).collect()
     }
 
@@ -151,13 +159,11 @@ impl FieldIndex {
     /// `(_id, value)` in sorted order (insertion order of the input is
     /// irrelevant). Used by `create_index` backfill and rebuilds.
     pub fn load(&mut self, pairs: impl IntoIterator<Item = (String, Value)>) {
-        let mut entries: Vec<Entry> =
-            pairs.into_iter().map(|(id, value)| Entry { value, id }).collect();
-        entries.sort_by(|a, b| {
-            a.value
-                .cmp(&b.value)
-                .then_with(|| a.id.cmp(&b.id))
-        });
+        let mut entries: Vec<Entry> = pairs
+            .into_iter()
+            .map(|(id, value)| Entry { value, id })
+            .collect();
+        entries.sort_by(|a, b| a.value.cmp(&b.value).then_with(|| a.id.cmp(&b.id)));
         self.entries = entries;
     }
 
@@ -202,8 +208,12 @@ pub fn value_heap(v: &Value) -> usize {
         Value::Array(a) => {
             a.capacity() * std::mem::size_of::<Value>() + a.iter().map(value_heap).sum::<usize>()
         }
-        Value::Object(o) => o.capacity() * std::mem::size_of::<(String, Value)>()
-            + o.iter().map(|(k, val)| k.capacity() + value_heap(val)).sum::<usize>(),
+        Value::Object(o) => {
+            o.capacity() * std::mem::size_of::<(String, Value)>()
+                + o.iter()
+                    .map(|(k, val)| k.capacity() + value_heap(val))
+                    .sum::<usize>()
+        }
         _ => 0,
     }
 }
@@ -261,6 +271,11 @@ impl IndexSet {
     /// Number of indexes (always `>= 1` — the primary).
     pub fn len(&self) -> usize {
         self.fields.len()
+    }
+
+    /// `true` when there are no indexes (never for a live collection).
+    pub fn is_empty(&self) -> bool {
+        self.fields.is_empty()
     }
 
     /// All indexed field names, sorted (deterministic; includes `_id`).
@@ -393,11 +408,27 @@ mod tests {
     #[test]
     fn range_bounds_included_excluded() {
         let mut ix = idx();
-        ages(&mut ix, &[(1, "a1"), (2, "a2"), (3, "a3"), (4, "a4"), (5, "a5"), (6, "a6")]);
+        ages(
+            &mut ix,
+            &[
+                (1, "a1"),
+                (2, "a2"),
+                (3, "a3"),
+                (4, "a4"),
+                (5, "a5"),
+                (6, "a6"),
+            ],
+        );
         // [2, 5)
-        assert_eq!(ix.ids_range(Included(&v(2)), Excluded(&v(5))), vec!["a2", "a3", "a4"]);
+        assert_eq!(
+            ix.ids_range(Included(&v(2)), Excluded(&v(5))),
+            vec!["a2", "a3", "a4"]
+        );
         // (1, 5]
-        assert_eq!(ix.ids_range(Excluded(&v(1)), Included(&v(5))), vec!["a2", "a3", "a4", "a5"]);
+        assert_eq!(
+            ix.ids_range(Excluded(&v(1)), Included(&v(5))),
+            vec!["a2", "a3", "a4", "a5"]
+        );
         // unbounded both ends = everything, in index order
         assert_eq!(
             ix.ids_range(Unbounded, Unbounded),
@@ -417,7 +448,10 @@ mod tests {
         ix.insert(v(3), "c".into());
         ix.insert(v(3), "a".into());
         ix.insert(v(2), "b".into());
-        assert_eq!(ix.ids_range(Included(&v(2)), Included(&v(3))), vec!["b", "a", "c"]);
+        assert_eq!(
+            ix.ids_range(Included(&v(2)), Included(&v(3))),
+            vec!["b", "a", "c"]
+        );
     }
 
     // -- remove --------------------------------------------------------------------
@@ -474,9 +508,15 @@ mod tests {
         let base = ix.memory_size();
         assert!(base > 0);
         for i in 0..100 {
-            ix.insert(Value::str(format!("payload-{i:04}-xxxxxxxxxxxxxxxx")), format!("id-{i}").into());
+            ix.insert(
+                Value::str(format!("payload-{i:04}-xxxxxxxxxxxxxxxx")),
+                format!("id-{i}"),
+            );
         }
-        assert!(ix.memory_size() > base + 100 * 30, "estimate must reflect id + value heap");
+        assert!(
+            ix.memory_size() > base + 100 * 30,
+            "estimate must reflect id + value heap"
+        );
     }
 
     // -- IndexSet ----------------------------------------------------------------------
@@ -519,10 +559,7 @@ mod tests {
     fn indexset_deindex_removes_every_entry() {
         let mut s = IndexSet::new();
         s.insert_index("a".into(), FieldIndex::new("a"));
-        let d = Value::Object(vec![
-            (ID_KEY.into(), Value::str("x")),
-            ("a".into(), v(42)),
-        ]);
+        let d = Value::Object(vec![(ID_KEY.into(), Value::str("x")), ("a".into(), v(42))]);
         s.index_doc("x", &d);
         assert_eq!(s.get("a").unwrap().len(), 1);
         s.deindex_doc("x", &d);

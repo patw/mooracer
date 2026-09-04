@@ -32,24 +32,59 @@ impl TV {
 /// Encode a test tree as a wire `Value`.
 fn enc<'a>(b: &mut FlatBufferBuilder<'a>, v: &TV) -> WIPOffset<Value<'a>> {
     match v {
-        TV::Null => Value::create(b, &ValueArgs { kind: ValueKind::Null, ..Default::default() }),
-        TV::Bool(x) => {
-            Value::create(b, &ValueArgs { kind: ValueKind::Bool, b: *x, ..Default::default() })
-        }
-        TV::I64(x) => {
-            Value::create(b, &ValueArgs { kind: ValueKind::I64, i: *x, ..Default::default() })
-        }
-        TV::F64(x) => {
-            Value::create(b, &ValueArgs { kind: ValueKind::F64, f: *x, ..Default::default() })
-        }
+        TV::Null => Value::create(
+            b,
+            &ValueArgs {
+                kind: ValueKind::Null,
+                ..Default::default()
+            },
+        ),
+        TV::Bool(x) => Value::create(
+            b,
+            &ValueArgs {
+                kind: ValueKind::Bool,
+                b: *x,
+                ..Default::default()
+            },
+        ),
+        TV::I64(x) => Value::create(
+            b,
+            &ValueArgs {
+                kind: ValueKind::I64,
+                i: *x,
+                ..Default::default()
+            },
+        ),
+        TV::F64(x) => Value::create(
+            b,
+            &ValueArgs {
+                kind: ValueKind::F64,
+                f: *x,
+                ..Default::default()
+            },
+        ),
         TV::Str(s) => {
             let s = b.create_string(s);
-            Value::create(b, &ValueArgs { kind: ValueKind::Str, s: Some(s), ..Default::default() })
+            Value::create(
+                b,
+                &ValueArgs {
+                    kind: ValueKind::Str,
+                    s: Some(s),
+                    ..Default::default()
+                },
+            )
         }
         TV::Array(items) => {
             let offs: Vec<_> = items.iter().map(|it| enc(b, it)).collect();
             let arr = b.create_vector(&offs);
-            Value::create(b, &ValueArgs { kind: ValueKind::Array, arr: Some(arr), ..Default::default() })
+            Value::create(
+                b,
+                &ValueArgs {
+                    kind: ValueKind::Array,
+                    arr: Some(arr),
+                    ..Default::default()
+                },
+            )
         }
         TV::Object(pairs) => {
             let vals: Vec<_> = pairs.iter().map(|(_, v)| enc(b, v)).collect();
@@ -132,14 +167,23 @@ fn value_tree_roundtrips_all_kinds_losslessly() {
         ("s", TV::Str("moo 🐄".to_string())),
         (
             "nested",
-            TV::obj(vec![("deep", TV::Array(vec![TV::I64(1), TV::Null, TV::Str("x".into())]))]),
+            TV::obj(vec![(
+                "deep",
+                TV::Array(vec![TV::I64(1), TV::Null, TV::Str("x".into())]),
+            )]),
         ),
         ("empty_arr", TV::Array(vec![])),
         ("empty_obj", TV::Object(vec![])),
     ]);
     let buf = build_request("herd", |b| {
         let filter = enc(b, &tree);
-        let cmd = FindCmd::create(b, &FindCmdArgs { filter: Some(filter), ..Default::default() });
+        let cmd = FindCmd::create(
+            b,
+            &FindCmdArgs {
+                filter: Some(filter),
+                ..Default::default()
+            },
+        );
         (Command::FindCmd, cmd.as_union_value())
     });
 
@@ -160,7 +204,12 @@ fn value_object_preserves_key_order() {
     ]);
     let buf = build_request("c", |b| {
         let filter = enc(b, &tree);
-        let cmd = CountCmd::create(b, &CountCmdArgs { filter: Some(filter) });
+        let cmd = CountCmd::create(
+            b,
+            &CountCmdArgs {
+                filter: Some(filter),
+            },
+        );
         (Command::CountCmd, cmd.as_union_value())
     });
 
@@ -174,7 +223,13 @@ fn value_object_preserves_key_order() {
 #[test]
 fn insert_command_roundtrips_multiple_docs() {
     let d1 = TV::obj(vec![("name", TV::Str("daisy".into())), ("age", TV::I64(9))]);
-    let d2 = TV::obj(vec![("name", TV::Str("hilde".into())), ("tags", TV::Array(vec![TV::Str("a".into()), TV::Str("b".into())]))]);
+    let d2 = TV::obj(vec![
+        ("name", TV::Str("hilde".into())),
+        (
+            "tags",
+            TV::Array(vec![TV::Str("a".into()), TV::Str("b".into())]),
+        ),
+    ]);
     let buf = build_request("cows", |b| {
         let v1 = enc(b, &d1);
         let v2 = enc(b, &d2);
@@ -206,7 +261,6 @@ fn find_command_roundtrips_pipeline() {
                 skip: 10,
                 limit: 25,
                 one: true,
-                ..Default::default()
             },
         );
         (Command::FindCmd, cmd.as_union_value())
@@ -226,7 +280,13 @@ fn find_command_roundtrips_pipeline() {
 fn find_command_defaults_are_unsorted_unlimited() {
     let buf = build_request("c", |b| {
         let f = enc(b, &TV::Object(vec![])); // {} = all
-        let cmd = FindCmd::create(b, &FindCmdArgs { filter: Some(f), ..Default::default() });
+        let cmd = FindCmd::create(
+            b,
+            &FindCmdArgs {
+                filter: Some(f),
+                ..Default::default()
+            },
+        );
         (Command::FindCmd, cmd.as_union_value())
     });
 
@@ -252,7 +312,14 @@ fn update_replace_delete_commands_roundtrip() {
     let buf1 = build_request("c", |b| {
         let f = enc(b, &filter);
         let u = enc(b, &update);
-        let up = UpdateCmd::create(b, &UpdateCmdArgs { filter: Some(f), update: Some(u), many: false });
+        let up = UpdateCmd::create(
+            b,
+            &UpdateCmdArgs {
+                filter: Some(f),
+                update: Some(u),
+                many: false,
+            },
+        );
         (Command::UpdateCmd, up.as_union_value())
     });
     let r = flatbuffers::root::<Request>(&buf1).unwrap();
@@ -264,7 +331,13 @@ fn update_replace_delete_commands_roundtrip() {
     let buf2 = build_request("c", |b| {
         let f = enc(b, &filter);
         let nd = enc(b, &new_doc);
-        let rp = ReplaceCmd::create(b, &ReplaceCmdArgs { filter: Some(f), new_doc: Some(nd) });
+        let rp = ReplaceCmd::create(
+            b,
+            &ReplaceCmdArgs {
+                filter: Some(f),
+                new_doc: Some(nd),
+            },
+        );
         (Command::ReplaceCmd, rp.as_union_value())
     });
     let r = flatbuffers::root::<Request>(&buf2).unwrap();
@@ -273,7 +346,13 @@ fn update_replace_delete_commands_roundtrip() {
 
     let buf3 = build_request("c", |b| {
         let f = enc(b, &filter);
-        let dl = DeleteCmd::create(b, &DeleteCmdArgs { filter: Some(f), many: true });
+        let dl = DeleteCmd::create(
+            b,
+            &DeleteCmdArgs {
+                filter: Some(f),
+                many: true,
+            },
+        );
         (Command::DeleteCmd, dl.as_union_value())
     });
     let r = flatbuffers::root::<Request>(&buf3).unwrap();
@@ -286,7 +365,14 @@ fn search_commands_roundtrip() {
     let buf = build_request("c", |b| {
         let field = b.create_string("emb");
         let qvec = b.create_vector(&[0.25f32, -1.5, 3.0, 0.0]);
-        let vc = VectorSearchCmd::create(b, &VectorSearchCmdArgs { field: Some(field), query: Some(qvec), limit: 5 });
+        let vc = VectorSearchCmd::create(
+            b,
+            &VectorSearchCmdArgs {
+                field: Some(field),
+                query: Some(qvec),
+                limit: 5,
+            },
+        );
         (Command::VectorSearchCmd, vc.as_union_value())
     });
     let r = flatbuffers::root::<Request>(&buf).unwrap();
@@ -302,7 +388,14 @@ fn search_commands_roundtrip() {
     let buf = build_request("c", |b| {
         let tf = b.create_string("body");
         let tq = b.create_string("mooing loudly");
-        let tc = TextSearchCmd::create(b, &TextSearchCmdArgs { field: Some(tf), query: Some(tq), limit: 0 });
+        let tc = TextSearchCmd::create(
+            b,
+            &TextSearchCmdArgs {
+                field: Some(tf),
+                query: Some(tq),
+                limit: 0,
+            },
+        );
         (Command::TextSearchCmd, tc.as_union_value())
     });
     let r = flatbuffers::root::<Request>(&buf).unwrap();
@@ -381,6 +474,64 @@ fn group_command_roundtrips_full_pipeline() {
 }
 
 #[test]
+fn index_command_roundtrips_all_kinds() {
+    // create value index (dim ignored)
+    let buf = build_request("c", |b| {
+        let f = b.create_string("age");
+        let cmd = IndexCmd::create(
+            b,
+            &IndexCmdArgs {
+                kind: IndexKind::CreateValue,
+                field: Some(f),
+                dim: 0,
+            },
+        );
+        (Command::IndexCmd, cmd.as_union_value())
+    });
+    let r = flatbuffers::root::<Request>(&buf).unwrap();
+    assert!(r.command_type() == Command::IndexCmd);
+    let ic = r.command_as_index_cmd().unwrap();
+    assert!(ic.kind() == IndexKind::CreateValue);
+    assert_eq!(ic.field().unwrap(), "age");
+    assert_eq!(ic.dim(), 0);
+
+    // create vector index (dim carried)
+    let buf = build_request("c", |b| {
+        let f = b.create_string("embedding");
+        let cmd = IndexCmd::create(
+            b,
+            &IndexCmdArgs {
+                kind: IndexKind::CreateVector,
+                field: Some(f),
+                dim: 8,
+            },
+        );
+        (Command::IndexCmd, cmd.as_union_value())
+    });
+    let r = flatbuffers::root::<Request>(&buf).unwrap();
+    let ic = r.command_as_index_cmd().unwrap();
+    assert!(ic.kind() == IndexKind::CreateVector);
+    assert_eq!(ic.field().unwrap(), "embedding");
+    assert_eq!(ic.dim(), 8);
+
+    // create text index
+    let buf = build_request("c", |b| {
+        let f = b.create_string("body");
+        let cmd = IndexCmd::create(
+            b,
+            &IndexCmdArgs {
+                kind: IndexKind::CreateText,
+                field: Some(f),
+                dim: 0,
+            },
+        );
+        (Command::IndexCmd, cmd.as_union_value())
+    });
+    let r = flatbuffers::root::<Request>(&buf).unwrap();
+    assert!(r.command_as_index_cmd().unwrap().kind() == IndexKind::CreateText);
+}
+
+#[test]
 fn count_exists_stats_commands_roundtrip() {
     let filter = TV::obj(vec![("a", TV::I64(1))]);
 
@@ -390,7 +541,10 @@ fn count_exists_stats_commands_roundtrip() {
         (Command::CountCmd, cc.as_union_value())
     });
     let r = flatbuffers::root::<Request>(&buf).unwrap();
-    assert_eq!(dec(&r.command_as_count_cmd().unwrap().filter().unwrap()), filter);
+    assert_eq!(
+        dec(&r.command_as_count_cmd().unwrap().filter().unwrap()),
+        filter
+    );
 
     let buf = build_request("c", |b| {
         let f = enc(b, &filter);
@@ -416,7 +570,11 @@ fn request_envelope_carries_version_reqid_collection_identifier() {
     });
 
     // The buffer carries the "MOOR" file identifier (frame sanity check).
-    assert!(flatbuffers::buffer_has_identifier(&buf, FILE_IDENTIFIER, false));
+    assert!(flatbuffers::buffer_has_identifier(
+        &buf,
+        FILE_IDENTIFIER,
+        false
+    ));
 
     let r = flatbuffers::root::<Request>(&buf).unwrap();
     assert_eq!(r.version(), WIRE_VERSION); // default = 1
@@ -430,10 +588,19 @@ fn request_envelope_carries_version_reqid_collection_identifier() {
 
 #[test]
 fn request_buffer_passes_full_verifier() {
-    let tree = TV::obj(vec![("a", TV::Array(vec![TV::obj(vec![("b", TV::I64(7))])]))]);
+    let tree = TV::obj(vec![(
+        "a",
+        TV::Array(vec![TV::obj(vec![("b", TV::I64(7))])]),
+    )]);
     let buf = build_request("c", |b| {
         let f = enc(b, &tree);
-        let cmd = FindCmd::create(b, &FindCmdArgs { filter: Some(f), ..Default::default() });
+        let cmd = FindCmd::create(
+            b,
+            &FindCmdArgs {
+                filter: Some(f),
+                ..Default::default()
+            },
+        );
         (Command::FindCmd, cmd.as_union_value())
     });
 
@@ -444,7 +611,7 @@ fn request_buffer_passes_full_verifier() {
     // wrapper at position 0 — that is the correct verifier entry point.
     // (Passing `Request::run_verifier(v, 0)` treats 0 as a *table* position,
     // which is wrong for a root-offset-prefixed buffer.)
-    let _ = <flatbuffers::ForwardsUOffset<Request>>::run_verifier(&mut v, 0)
+    <flatbuffers::ForwardsUOffset<Request>>::run_verifier(&mut v, 0)
         .expect("well-formed buffer verifies");
 }
 
@@ -488,7 +655,12 @@ fn response_ok_roundtrips_every_body() {
     let fr = FindRes::create(&mut b, &FindResArgs { docs: Some(docs) });
     let resp = Response::create(
         &mut b,
-        &ResponseArgs { req_id: 1, body_type: ResponseBody::FindRes, body: Some(fr.as_union_value()), ..Default::default() },
+        &ResponseArgs {
+            req_id: 1,
+            body_type: ResponseBody::FindRes,
+            body: Some(fr.as_union_value()),
+            ..Default::default()
+        },
     );
     b.finish(resp, None);
     let r = flatbuffers::root::<Response>(b.finished_data()).unwrap();
@@ -499,74 +671,214 @@ fn response_ok_roundtrips_every_body() {
     // Scalar bodies.
     let mut b = FlatBufferBuilder::new();
     let cr = CountRes::create(&mut b, &CountResArgs { count: 42 });
-    let resp = Response::create(&mut b, &ResponseArgs { body_type: ResponseBody::CountRes, body: Some(cr.as_union_value()), ..Default::default() });
+    let resp = Response::create(
+        &mut b,
+        &ResponseArgs {
+            body_type: ResponseBody::CountRes,
+            body: Some(cr.as_union_value()),
+            ..Default::default()
+        },
+    );
     b.finish(resp, None);
-    assert_eq!(flatbuffers::root::<Response>(b.finished_data()).unwrap().body_as_count_res().unwrap().count(), 42);
+    assert_eq!(
+        flatbuffers::root::<Response>(b.finished_data())
+            .unwrap()
+            .body_as_count_res()
+            .unwrap()
+            .count(),
+        42
+    );
 
     let mut b = FlatBufferBuilder::new();
     let er = ExistsRes::create(&mut b, &ExistsResArgs { exists: true });
-    let resp = Response::create(&mut b, &ResponseArgs { body_type: ResponseBody::ExistsRes, body: Some(er.as_union_value()), ..Default::default() });
+    let resp = Response::create(
+        &mut b,
+        &ResponseArgs {
+            body_type: ResponseBody::ExistsRes,
+            body: Some(er.as_union_value()),
+            ..Default::default()
+        },
+    );
     b.finish(resp, None);
-    assert!(flatbuffers::root::<Response>(b.finished_data()).unwrap().body_as_exists_res().unwrap().exists());
+    assert!(
+        flatbuffers::root::<Response>(b.finished_data())
+            .unwrap()
+            .body_as_exists_res()
+            .unwrap()
+            .exists()
+    );
 
     let mut b = FlatBufferBuilder::new();
     let ur = UpdateRes::create(&mut b, &UpdateResArgs { count: 1 });
-    let resp = Response::create(&mut b, &ResponseArgs { body_type: ResponseBody::UpdateRes, body: Some(ur.as_union_value()), ..Default::default() });
+    let resp = Response::create(
+        &mut b,
+        &ResponseArgs {
+            body_type: ResponseBody::UpdateRes,
+            body: Some(ur.as_union_value()),
+            ..Default::default()
+        },
+    );
     b.finish(resp, None);
-    assert_eq!(flatbuffers::root::<Response>(b.finished_data()).unwrap().body_as_update_res().unwrap().count(), 1);
+    assert_eq!(
+        flatbuffers::root::<Response>(b.finished_data())
+            .unwrap()
+            .body_as_update_res()
+            .unwrap()
+            .count(),
+        1
+    );
 
     let mut b = FlatBufferBuilder::new();
     let rpr = ReplaceRes::create(&mut b, &ReplaceResArgs { count: 1 });
-    let resp = Response::create(&mut b, &ResponseArgs { body_type: ResponseBody::ReplaceRes, body: Some(rpr.as_union_value()), ..Default::default() });
+    let resp = Response::create(
+        &mut b,
+        &ResponseArgs {
+            body_type: ResponseBody::ReplaceRes,
+            body: Some(rpr.as_union_value()),
+            ..Default::default()
+        },
+    );
     b.finish(resp, None);
-    assert!(flatbuffers::root::<Response>(b.finished_data()).unwrap().body_as_replace_res().is_some());
+    assert!(
+        flatbuffers::root::<Response>(b.finished_data())
+            .unwrap()
+            .body_as_replace_res()
+            .is_some()
+    );
 
     let mut b = FlatBufferBuilder::new();
     let dl = DeleteRes::create(&mut b, &DeleteResArgs { count: 7 });
-    let resp = Response::create(&mut b, &ResponseArgs { body_type: ResponseBody::DeleteRes, body: Some(dl.as_union_value()), ..Default::default() });
+    let resp = Response::create(
+        &mut b,
+        &ResponseArgs {
+            body_type: ResponseBody::DeleteRes,
+            body: Some(dl.as_union_value()),
+            ..Default::default()
+        },
+    );
     b.finish(resp, None);
-    assert_eq!(flatbuffers::root::<Response>(b.finished_data()).unwrap().body_as_delete_res().unwrap().count(), 7);
+    assert_eq!(
+        flatbuffers::root::<Response>(b.finished_data())
+            .unwrap()
+            .body_as_delete_res()
+            .unwrap()
+            .count(),
+        7
+    );
 
     // SearchRes: two scored hits, best-first order preserved.
     let mut b = FlatBufferBuilder::new();
     let h1d = enc(&mut b, &doc1);
-    let h1 = SearchHit::create(&mut b, &SearchHitArgs { doc: Some(h1d), score: 0.87 });
+    let h1 = SearchHit::create(
+        &mut b,
+        &SearchHitArgs {
+            doc: Some(h1d),
+            score: 0.87,
+        },
+    );
     let h2d = enc(&mut b, &doc2);
-    let h2 = SearchHit::create(&mut b, &SearchHitArgs { doc: Some(h2d), score: 1.5 });
+    let h2 = SearchHit::create(
+        &mut b,
+        &SearchHitArgs {
+            doc: Some(h2d),
+            score: 1.5,
+        },
+    );
     let hits = b.create_vector(&[h2, h1]);
     let sr = SearchRes::create(&mut b, &SearchResArgs { hits: Some(hits) });
-    let resp = Response::create(&mut b, &ResponseArgs { body_type: ResponseBody::SearchRes, body: Some(sr.as_union_value()), ..Default::default() });
+    let resp = Response::create(
+        &mut b,
+        &ResponseArgs {
+            body_type: ResponseBody::SearchRes,
+            body: Some(sr.as_union_value()),
+            ..Default::default()
+        },
+    );
     b.finish(resp, None);
-    let hits = flatbuffers::root::<Response>(b.finished_data()).unwrap().body_as_search_res().unwrap().hits().unwrap();
+    let hits = flatbuffers::root::<Response>(b.finished_data())
+        .unwrap()
+        .body_as_search_res()
+        .unwrap()
+        .hits()
+        .unwrap();
     assert_eq!(hits.len(), 2);
     assert!((hits.get(0).score() - 1.5).abs() < 1e-12);
     assert!((hits.get(1).score() - 0.87).abs() < 1e-12);
-    assert_eq!(dec(&hits.get(1).doc().as_ref().unwrap()), doc1);
+    assert_eq!(dec(hits.get(1).doc().as_ref().unwrap()), doc1);
 
     // GroupRes.
     let mut b = FlatBufferBuilder::new();
     let g0 = enc(&mut b, &group);
     let groups = b.create_vector(&[g0]);
-    let gr = GroupRes::create(&mut b, &GroupResArgs { groups: Some(groups) });
-    let resp = Response::create(&mut b, &ResponseArgs { body_type: ResponseBody::GroupRes, body: Some(gr.as_union_value()), ..Default::default() });
+    let gr = GroupRes::create(
+        &mut b,
+        &GroupResArgs {
+            groups: Some(groups),
+        },
+    );
+    let resp = Response::create(
+        &mut b,
+        &ResponseArgs {
+            body_type: ResponseBody::GroupRes,
+            body: Some(gr.as_union_value()),
+            ..Default::default()
+        },
+    );
     b.finish(resp, None);
-    let groups = flatbuffers::root::<Response>(b.finished_data()).unwrap().body_as_group_res().unwrap().groups().unwrap();
+    let groups = flatbuffers::root::<Response>(b.finished_data())
+        .unwrap()
+        .body_as_group_res()
+        .unwrap()
+        .groups()
+        .unwrap();
     assert_eq!(dec(&groups.get(0)), group);
 
     // StatsRes with per-index table.
     let mut b = FlatBufferBuilder::new();
     let f1s = b.create_string("_id");
-    let s1 = IndexStat::create(&mut b, &IndexStatArgs { field: Some(f1s), entries: 100, distinct: 100, memory: 512 });
+    let s1 = IndexStat::create(
+        &mut b,
+        &IndexStatArgs {
+            field: Some(f1s),
+            entries: 100,
+            distinct: 100,
+            memory: 512,
+        },
+    );
     let f2s = b.create_string("age");
-    let s2 = IndexStat::create(&mut b, &IndexStatArgs { field: Some(f2s), entries: 100, distinct: 40, memory: 777 });
+    let s2 = IndexStat::create(
+        &mut b,
+        &IndexStatArgs {
+            field: Some(f2s),
+            entries: 100,
+            distinct: 40,
+            memory: 777,
+        },
+    );
     let per = b.create_vector(&[s1, s2]);
     let st = StatsRes::create(
         &mut b,
-        &StatsResArgs { docs: 100, docs_memory: 2048, indexes: 2, total_memory: 3337, per_index: Some(per) },
+        &StatsResArgs {
+            docs: 100,
+            docs_memory: 2048,
+            indexes: 2,
+            total_memory: 3337,
+            per_index: Some(per),
+        },
     );
-    let resp = Response::create(&mut b, &ResponseArgs { body_type: ResponseBody::StatsRes, body: Some(st.as_union_value()), ..Default::default() });
+    let resp = Response::create(
+        &mut b,
+        &ResponseArgs {
+            body_type: ResponseBody::StatsRes,
+            body: Some(st.as_union_value()),
+            ..Default::default()
+        },
+    );
     b.finish(resp, None);
-    let st = flatbuffers::root::<Response>(b.finished_data()).unwrap().body_as_stats_res().unwrap();
+    let st = flatbuffers::root::<Response>(b.finished_data())
+        .unwrap()
+        .body_as_stats_res()
+        .unwrap();
     assert_eq!(st.docs(), 100);
     assert_eq!(st.docs_memory(), 2048);
     assert_eq!(st.indexes(), 2);
@@ -575,6 +887,25 @@ fn response_ok_roundtrips_every_body() {
     assert_eq!(per.get(0).field().unwrap(), "_id");
     assert_eq!(per.get(1).field().unwrap(), "age");
     assert_eq!(per.get(1).distinct(), 40);
+
+    // IndexRes (a success marker for IndexCmd).
+    let mut b = FlatBufferBuilder::new();
+    let ir = IndexRes::create(&mut b, &IndexResArgs::default());
+    let resp = Response::create(
+        &mut b,
+        &ResponseArgs {
+            body_type: ResponseBody::IndexRes,
+            body: Some(ir.as_union_value()),
+            ..Default::default()
+        },
+    );
+    b.finish(resp, None);
+    assert!(
+        flatbuffers::root::<Response>(b.finished_data())
+            .unwrap()
+            .body_as_index_res()
+            .is_some()
+    );
 }
 
 #[test]
@@ -600,7 +931,12 @@ fn response_error_status_roundtrips_every_code() {
         let msg = b.create_string(&format!("detail for {}", s.0));
         let resp = Response::create(
             &mut b,
-            &ResponseArgs { req_id: 55, status: s, message: Some(msg), ..Default::default() },
+            &ResponseArgs {
+                req_id: 55,
+                status: s,
+                message: Some(msg),
+                ..Default::default()
+            },
         );
         b.finish(resp, Some(FILE_IDENTIFIER));
         let r = flatbuffers::root::<Response>(b.finished_data()).unwrap();
@@ -637,6 +973,7 @@ fn discriminant_numbers_are_the_wire_contract() {
     assert_eq!(Command::HybridSearchCmd.0, 10);
     assert_eq!(Command::GroupCmd.0, 11);
     assert_eq!(Command::StatsCmd.0, 12);
+    assert_eq!(Command::IndexCmd.0, 13); // added later; must stay appended
 
     assert_eq!(ResponseBody::NONE.0, 0);
     assert_eq!(ResponseBody::InsertRes.0, 1);
@@ -649,6 +986,15 @@ fn discriminant_numbers_are_the_wire_contract() {
     assert_eq!(ResponseBody::SearchRes.0, 8);
     assert_eq!(ResponseBody::GroupRes.0, 9);
     assert_eq!(ResponseBody::StatsRes.0, 10);
+    assert_eq!(ResponseBody::IndexRes.0, 11); // added later; must stay appended
+
+    // IndexKind discriminants (the index-management command's op code).
+    assert_eq!(IndexKind::CreateValue.0, 0);
+    assert_eq!(IndexKind::DropValue.0, 1);
+    assert_eq!(IndexKind::CreateVector.0, 2);
+    assert_eq!(IndexKind::DropVector.0, 3);
+    assert_eq!(IndexKind::CreateText.0, 4);
+    assert_eq!(IndexKind::DropText.0, 5);
 
     // `Status` is a `byte` enum — the generated wrapper is *signed* i8, so
     // the numeric contract is pinned in i8.
@@ -699,7 +1045,11 @@ fn status_maps_1to1_to_store_error_variants() {
         Status::UnsupportedVersion,
         Status::InternalError,
     ];
-    let mut all: Vec<i8> = store_codes.iter().map(|s| s.0).chain(transport_codes.iter().map(|s| s.0)).collect();
+    let mut all: Vec<i8> = store_codes
+        .iter()
+        .map(|s| s.0)
+        .chain(transport_codes.iter().map(|s| s.0))
+        .collect();
     all.sort_unstable();
     all.dedup();
     assert_eq!(all.len(), 13, "store + transport codes are disjoint");

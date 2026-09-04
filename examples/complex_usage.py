@@ -6,14 +6,10 @@ Demonstrates the search-and-aggregation surface over a small product corpus:
     * `hybrid_search`  — Reciprocal Rank Fusion of the two
     * group-by aggregation over the same query chain
 
-Vector/text indexes are created **server-side** (wire v1 has no index-management
-command), so run the *dev* server with the index env vars — see
-examples/README.md:
+Indexes are created **over the wire** with the client (`create_vector_index`,
+`create_text_index`), so this runs against the plain server:
 
-    MOORACER_ADDR=127.0.0.1:4141 \
-    MOORACER_VECTOR_INDEX=products:embedding:8 \
-    MOORACER_TEXT_INDEX=products:description \
-        cargo run --release -p mooracer-server --bin mooracer-devserver
+    MOORACER_ADDR=127.0.0.1:4141 cargo run --release -p mooracer-server
 
 Then, in another terminal:
     MOORACER_ADDR=127.0.0.1:4141 python3 examples/complex_usage.py
@@ -67,6 +63,15 @@ def main() -> None:
         col.delete_many({})
         ids = col.insert_many(PRODUCTS)
         print(f"inserted {len(ids)} products")
+
+        # Create the indexes over the wire (backfills from existing docs).
+        # Value index -> range/equality fast paths; vector -> cosine search;
+        # text -> BM25. The `_id` index is implicit.
+        col.create_index("category")
+        col.create_vector_index("embedding", DIM)
+        col.create_text_index("description")
+        print("created value index on 'category', vector index on 'embedding', "
+              f"and text index on 'description' (dim={DIM})")
 
         # ------------------------------------------------------------------
         # TEXT SEARCH — BM25 + Porter stemming
